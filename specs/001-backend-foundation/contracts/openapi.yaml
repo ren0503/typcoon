@@ -1,0 +1,104 @@
+openapi: 3.0.3
+info:
+  title: Tycoon Backend Foundation API
+  version: 0.1.0
+  description: >-
+    Technical endpoints exposed by the backend foundation. This contract contains no business
+    endpoints. Only liveness and readiness checks are defined.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness check
+      description: >-
+        Reports that the process is running. This check does not verify dependencies and must not
+        expose configuration, dependency, or infrastructure details.
+      tags:
+        - Technical
+      responses:
+        '200':
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: ok
+  /ready:
+    get:
+      operationId: getReadiness
+      summary: Readiness check
+      description: >-
+        Reports whether the instance can serve traffic. Readiness verifies database connectivity
+        with a bounded timeout. When the database is unavailable, the instance is not ready and the
+        service is expected to shut down and exit.
+      tags:
+        - Technical
+      responses:
+        '200':
+          description: The instance is ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                status: ready
+        '503':
+          description: The instance is not ready to serve traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              example:
+                status: not_ready
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required:
+        - status
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+            - ok
+    ReadinessResponse:
+      type: object
+      required:
+        - status
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+            - ready
+            - not_ready
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+              example: not_found
+            message:
+              type: string
+              description: Safe human-readable message. Never contains secrets or internal details.
+              example: Resource not found.
+            request_id:
+              type: string
+              description: Correlation identifier when available.
+              example: 01J9Z5K4Q7W3F2M8N1P6R0T5VX

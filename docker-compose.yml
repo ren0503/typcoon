@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-tycoon}
+      POSTGRES_USER: ${DB_USER:-tycoon}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-local-development-only}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-tycoon} -d ${DB_NAME:-tycoon}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    env_file:
+      - .env
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+    ports:
+      - "${HTTP_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  localstack:
+    image: localstack/localstack:3
+    profiles: ["localstack"]
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: s3,sqs,sns,secretsmanager,cloudwatch
+      AWS_DEFAULT_REGION: ${AWS_REGION:-us-east-1}
+
+volumes:
+  postgres-data:

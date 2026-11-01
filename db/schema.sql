@@ -1,0 +1,2 @@
+-- The foundation defines no business tables.
+-- This file is the schema input for sqlc and intentionally contains no DDL.
