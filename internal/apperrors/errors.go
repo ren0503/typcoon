@@ -51,3 +51,48 @@ func As(err error) (*Error, bool) {
 	}
 	return nil, false
 }
+
+// Error codes shared across modules and the HTTP layer.
+const (
+	CodeUnauthorized        = "unauthorized"
+	CodeForbidden           = "forbidden"
+	CodeNotFound            = "not_found"
+	CodeValidationFailed    = "validation_failed"
+	CodeInvalidReference    = "invalid_reference"
+	CodeInvalidCursor       = "invalid_cursor"
+	CodeConflict            = "conflict"
+	CodeOverlapConflict     = "overlap_conflict"
+	CodeIdempotencyConflict = "idempotency_conflict"
+	CodeBusinessRule        = "business_rule_violation"
+	CodeRetryable           = "retryable"
+)
+
+// NotFound creates a not-found application error.
+func NotFound(code, message string) *Error {
+	return New(code, message, http.StatusNotFound)
+}
+
+// Conflict creates a conflict application error.
+func Conflict(code, message string) *Error {
+	return New(code, message, http.StatusConflict)
+}
+
+// Validation creates a validation application error.
+func Validation(code, message string) *Error {
+	return New(code, message, http.StatusUnprocessableEntity)
+}
+
+// BadRequest creates a malformed-request application error.
+func BadRequest(code, message string) *Error {
+	return New(code, message, http.StatusBadRequest)
+}
+
+// Unauthorized creates an authentication-required application error.
+func Unauthorized(message string) *Error {
+	return New(CodeUnauthorized, message, http.StatusUnauthorized)
+}
+
+// Forbidden creates an authorization application error.
+func Forbidden(message string) *Error {
+	return New(CodeForbidden, message, http.StatusForbidden)
+}

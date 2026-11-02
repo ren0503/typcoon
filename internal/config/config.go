@@ -19,6 +19,7 @@ type Config struct {
 	HTTP     HTTPConfig     `validate:"required"`
 	Database DatabaseConfig `validate:"required"`
 	AWS      AWSConfig      `validate:"required"`
+	Auth     AuthConfig     `validate:"required"`
 	CORS     CORSConfig
 }
 
@@ -51,6 +52,12 @@ type DatabaseConfig struct {
 type AWSConfig struct {
 	Region      string `env:"AWS_REGION" validate:"required"`
 	EndpointURL string `env:"AWS_ENDPOINT_URL" validate:"omitempty,url"`
+}
+
+// AuthConfig selects the principal provider and its development allowlist.
+type AuthConfig struct {
+	Mode          string   `env:"AUTH_MODE" validate:"required,oneof=dev jwt"`
+	DevPrincipals []string `env:"AUTH_DEV_PRINCIPALS"`
 }
 
 // CORSConfig holds the cross-origin allowlist.
@@ -100,6 +107,8 @@ func Load() (*Config, error) {
 	bind("aws_region", "AWS_REGION")
 	bind("aws_endpoint_url", "AWS_ENDPOINT_URL")
 	bind("cors_allowed_origins", "CORS_ALLOWED_ORIGINS")
+	bind("auth_mode", "AUTH_MODE")
+	bind("auth_dev_principals", "AUTH_DEV_PRINCIPALS")
 
 	v.SetDefault("app_name", "tycoon-backend")
 	v.SetDefault("app_env", "development")
@@ -120,6 +129,8 @@ func Load() (*Config, error) {
 	v.SetDefault("aws_region", "us-east-1")
 	v.SetDefault("aws_endpoint_url", "")
 	v.SetDefault("cors_allowed_origins", "")
+	v.SetDefault("auth_mode", "jwt")
+	v.SetDefault("auth_dev_principals", "")
 
 	cfg := &Config{
 		AppName:  v.GetString("app_name"),
@@ -150,6 +161,10 @@ func Load() (*Config, error) {
 			Region:      v.GetString("aws_region"),
 			EndpointURL: v.GetString("aws_endpoint_url"),
 		},
+		Auth: AuthConfig{
+			Mode:          v.GetString("auth_mode"),
+			DevPrincipals: splitList(v.GetString("auth_dev_principals")),
+		},
 		CORS: CORSConfig{
 			AllowedOrigins: splitOrigins(v.GetString("cors_allowed_origins")),
 		},
@@ -169,7 +184,30 @@ func (c *Config) Validate() error {
 	if c.Database.MinConns > c.Database.MaxConns {
 		return errors.New("invalid configuration: DB_MIN_CONNS must be less than or equal to DB_MAX_CONNS")
 	}
+	if c.Auth.Mode == "dev" {
+		if c.AppEnv == "production" {
+			return errors.New("invalid configuration: AUTH_MODE=dev must not be used in production")
+		}
+		if len(c.Auth.DevPrincipals) == 0 {
+			return errors.New("invalid configuration: AUTH_MODE=dev requires a non-empty AUTH_DEV_PRINCIPALS allowlist")
+		}
+	}
 	return nil
+}
+
+func splitList(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func splitOrigins(value string) []string {

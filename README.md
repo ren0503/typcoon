@@ -1,11 +1,12 @@
 # Tycoon Backend
 
-Production-ready backend foundation for the yacht management platform. This repository currently
-contains only the technical foundation: configuration, logging, database lifecycle, migrations,
-query generation, AWS integration points, HTTP health endpoints, graceful shutdown, containerization,
-and a minimal Terraform scaffold.
-
-**No business logic, domain entities, business tables, or business APIs are implemented.**
+Production-ready Go backend for the yacht management platform. It includes the technical foundation
+(configuration, logging, database lifecycle, migrations, sqlc query generation, AWS integration
+points, HTTP health endpoints, graceful shutdown, containerization, and a minimal Terraform
+scaffold) and the `002-business-modules` increment: the 41-table business schema and REST modules
+`tenant`, `ship`, `voyage`, `staff`, `partner`, `booking`, and `guest` under `/v1`. The `sync`, `ai`,
+`feedback`, `auth`, and `audit` modules expose services only; they register no HTTP routes in this
+phase. See `specs/002-business-modules/` for the specification, contracts, and ownership map.
 
 ## Prerequisites
 
@@ -28,9 +29,27 @@ make run                # run the backend from source
 Then verify:
 
 ```bash
+cp .env.example .env
+make sqlc               # regenerate sqlc models/queries after schema changes
+make migrate-up         # apply the foundation + 41-table business schema
+make run                # start the API on :8080
+
 curl -i http://localhost:8080/health
 curl -i http://localhost:8080/ready
 ```
+
+Business endpoints live under `/v1` and require an authenticated principal. Local development uses
+the explicit allowlist provider:
+
+```bash
+AUTH_MODE=dev
+AUTH_DEV_PRINCIPALS=system:dev-1:00000000-0000-0000-0000-000000000000
+# then send: X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000
+curl -i -H "X-Dev-Principal: $AUTH_DEV_PRINCIPALS" http://localhost:8080/v1/tenants
+```
+
+`AUTH_MODE=dev` is rejected when `APP_ENV=production`. `AUTH_MODE=jwt` is reserved for the later auth
+feature and currently denies all requests. No AWS account or credentials are required locally.
 
 Expected responses:
 
@@ -47,7 +66,8 @@ Configuration is read **only from process environment variables**. The applicati
 `.env`; the Makefile and Docker Compose load it for local convenience.
 
 See `.env.example` for every variable and its default. Required settings are `DB_HOST`, `DB_NAME`,
-`DB_USER`, and `DB_PASSWORD`. The full contract is in
+`DB_USER`, and `DB_PASSWORD`; authentication requires `AUTH_MODE` (`dev` or `jwt`) and, in dev mode,
+a non-empty `AUTH_DEV_PRINCIPALS` allowlist. The foundation contract is in
 `specs/001-backend-foundation/contracts/configuration.md`.
 
 Production environments MUST set `DB_SSLMODE=require` or stricter.
@@ -75,13 +95,22 @@ Production environments MUST set `DB_SSLMODE=require` or stricter.
 
 ## Endpoints
 
-Only technical endpoints exist:
+Technical endpoints:
 
 - `GET /health` — liveness; does not check dependencies; returns `{"status":"ok"}`.
 - `GET /ready` — readiness; pings PostgreSQL; returns `{"status":"ready"}` or HTTP 503
   `{"status":"not_ready"}`.
 
-Neither endpoint exposes secrets, hosts, versions, or internal error details.
+Business endpoints under `/v1` (all behind default-deny authentication): tenants, ships/decks/areas/
+rooms, ports/voyages/port-calls, staff/leaves/credentials/shift templates/coverage/labor rules/
+autonomy policies, partners/contracts/staff/services/slots, bookings/service-bookings, and
+guests/boarding-passes. Cursor pagination uses `limit` and `cursor`; the response envelope is
+`{"data": [...], "meta": {"next_cursor": ...}}`. Mutating booking and service-booking requests accept
+an `Idempotency-Key` header. Internal tables (`change_log`, `ship_seq`, `refresh_tokens`, `audit_log`,
+`ops_events`, `snapshots`, `job_runs`) deliberately expose no CRUD routes.
+
+Neither technical endpoint exposes secrets, hosts, versions, or internal error details. Guest
+responses never include document or emergency-contact ciphertext.
 
 ## Database
 
@@ -89,7 +118,9 @@ PostgreSQL is accessed through `pgxpool`. Migrations are managed by Goose and em
 `cmd/migrate`. Migrations are **never** run at application startup; run `make migrate-up` as a
 separate step.
 
-The only migration is a no-op technical migration that proves the pipeline. No business tables exist.
+`00001` is a no-op technical migration that proves the pipeline. `00002_business_schema.sql` adds the
+41-table business schema from `docs/schema.sql`, including triggers and exclusion constraints. Keep
+`db/schema.sql`, the migration, and `docs/schema.sql` in sync.
 
 ## Database Access Generation
 
@@ -130,7 +161,21 @@ A remote state backend is intentionally deferred to future work.
 ```text
 cmd/                 Executables (server, migrate)
 internal/            Private application packages
-  app/               Bootstrap and lifecycle orchestration
+  app/               Bootstrap, lifecycle, module composition
+  tenant/            Tenant module (service, repo, handlers)
+  ship/              Ships/decks/areas/rooms module
+  voyage/            Ports/voyages/port-calls module
+  staff/             Staff/leaves/credentials/shifts/coverage/labor/autonomy module
+  partner/           Partners/contracts/staff/services/slots module
+  booking/           Bookings and service bookings module
+  guest/             Guests and boarding passes module
+  sync/              Device/credential/snapshot/job lifecycle (no HTTP routes)
+  ai/                AI parameter metadata (no HTTP routes)
+  feedback/          Feedback responses and insights (no HTTP routes)
+  auth/              Principal provider and account reference service
+  audit/             Audit appender (same-transaction emission)
+  ownership/         Table-to-module ownership map and CI guard
+  httpx/             Shared JSON/error/pagination handler helpers
   config/            Environment configuration and validation
   logging/           Structured logging
   database/          pgxpool lifecycle and migrations
@@ -152,9 +197,10 @@ terraform/           Minimal AWS infrastructure scaffold
 
 ## Scope
 
-This foundation intentionally excludes business logic, domain models, business tables, business APIs,
-authentication/authorization workflows, business event processing, metrics, tracing, and profiling.
-See `specs/001-backend-foundation/spec.md` for the full specification.
+The `002-business-modules` increment implements the business schema and REST modules listed above.
+It intentionally excludes token issuance/JWT verification workflows (dev allowlist only), sync
+transport, AI signing/execution workflows, metrics, tracing, and profiling. See
+`specs/002-business-modules/spec.md` and `specs/001-backend-foundation/spec.md` for details.
 
 ## Troubleshooting
 

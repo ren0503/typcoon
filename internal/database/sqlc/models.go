@@ -3,3 +3,606 @@
 //   sqlc v1.30.0
 
 package sqlc
+
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/shopspring/decimal"
+)
+
+type Account struct {
+	ID          uuid.UUID  `json:"id"`
+	Email       *string    `json:"email"`
+	DisplayName *string    `json:"display_name"`
+	Phone       *string    `json:"phone"`
+	Locale      string     `json:"locale"`
+	Status      string     `json:"status"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Version     int64      `json:"version"`
+	DeletedAt   *time.Time `json:"deleted_at"`
+}
+
+type AccountIdentity struct {
+	ID          uuid.UUID `json:"id"`
+	AccountID   uuid.UUID `json:"account_id"`
+	Provider    string    `json:"provider"`
+	ProviderSub string    `json:"provider_sub"`
+	Email       *string   `json:"email"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+type AdminShipAccess struct {
+	AdminUserID uuid.UUID `json:"admin_user_id"`
+	ShipID      uuid.UUID `json:"ship_id"`
+}
+
+type AdminUser struct {
+	ID          uuid.UUID  `json:"id"`
+	TenantID    uuid.UUID  `json:"tenant_id"`
+	Email       string     `json:"email"`
+	DisplayName string     `json:"display_name"`
+	IdpSubject  *string    `json:"idp_subject"`
+	Role        string     `json:"role"`
+	MfaEnabled  bool       `json:"mfa_enabled"`
+	Status      string     `json:"status"`
+	LastLoginAt *time.Time `json:"last_login_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Version     int64      `json:"version"`
+	DeletedAt   *time.Time `json:"deleted_at"`
+}
+
+type AiParam struct {
+	ID           uuid.UUID  `json:"id"`
+	TenantID     uuid.UUID  `json:"tenant_id"`
+	Kind         string     `json:"kind"`
+	ParamVersion int32      `json:"param_version"`
+	StorageKey   string     `json:"storage_key"`
+	Sha256       string     `json:"sha256"`
+	Kid          string     `json:"kid"`
+	Signature    string     `json:"signature"`
+	Status       string     `json:"status"`
+	ReleasedAt   *time.Time `json:"released_at"`
+	Notes        *string    `json:"notes"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	Version      int64      `json:"version"`
+	DeletedAt    *time.Time `json:"deleted_at"`
+}
+
+type Area struct {
+	ID        uuid.UUID  `json:"id"`
+	ShipID    uuid.UUID  `json:"ship_id"`
+	DeckID    uuid.UUID  `json:"deck_id"`
+	Name      string     `json:"name"`
+	AreaType  string     `json:"area_type"`
+	Capacity  *int32     `json:"capacity"`
+	Layout    []byte     `json:"layout"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Version   int64      `json:"version"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+type AuditLog struct {
+	ID         int64         `json:"id"`
+	OccurredAt time.Time     `json:"occurred_at"`
+	Source     string        `json:"source"`
+	ActorType  string        `json:"actor_type"`
+	ActorID    *string       `json:"actor_id"`
+	Action     string        `json:"action"`
+	Entity     *string       `json:"entity"`
+	EntityID   *string       `json:"entity_id"`
+	ShipID     uuid.NullUUID `json:"ship_id"`
+	VoyageID   uuid.NullUUID `json:"voyage_id"`
+	Details    []byte        `json:"details"`
+}
+
+type AutonomyPolicy struct {
+	ID         uuid.UUID       `json:"id"`
+	TenantID   uuid.UUID       `json:"tenant_id"`
+	ShipID     uuid.NullUUID   `json:"ship_id"`
+	ChangeType string          `json:"change_type"`
+	Level      string          `json:"level"`
+	Conditions json.RawMessage `json:"conditions"`
+	CreatedAt  time.Time       `json:"created_at"`
+	UpdatedAt  time.Time       `json:"updated_at"`
+	Version    int64           `json:"version"`
+	DeletedAt  *time.Time      `json:"deleted_at"`
+}
+
+type BoardingPass struct {
+	ID        uuid.UUID     `json:"id"`
+	BookingID uuid.UUID     `json:"booking_id"`
+	GuestID   uuid.NullUUID `json:"guest_id"`
+	Jti       uuid.UUID     `json:"jti"`
+	IssuedAt  time.Time     `json:"issued_at"`
+	ExpiresAt time.Time     `json:"expires_at"`
+	RevokedAt *time.Time    `json:"revoked_at"`
+}
+
+type Booking struct {
+	ID              uuid.UUID     `json:"id"`
+	ShipID          uuid.UUID     `json:"ship_id"`
+	VoyageID        uuid.UUID     `json:"voyage_id"`
+	AccountID       uuid.NullUUID `json:"account_id"`
+	RoomID          uuid.NullUUID `json:"room_id"`
+	EmbarkSeq       int32         `json:"embark_seq"`
+	DisembarkSeq    int32         `json:"disembark_seq"`
+	Status          string        `json:"status"`
+	ExpiresAt       *time.Time    `json:"expires_at"`
+	IdempotencyKey  *string       `json:"idempotency_key"`
+	SpecialRequests *string       `json:"special_requests"`
+	Source          string        `json:"source"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	Version         int64         `json:"version"`
+	DeletedAt       *time.Time    `json:"deleted_at"`
+}
+
+type ChangeLog struct {
+	ShipID        uuid.UUID       `json:"ship_id"`
+	Seq           int64           `json:"seq"`
+	Entity        string          `json:"entity"`
+	EntityID      uuid.UUID       `json:"entity_id"`
+	Op            string          `json:"op"`
+	Version       int64           `json:"version"`
+	SchemaVersion int32           `json:"schema_version"`
+	Payload       json.RawMessage `json:"payload"`
+	CreatedAt     time.Time       `json:"created_at"`
+}
+
+type CoverageRequirement struct {
+	ID              uuid.UUID     `json:"id"`
+	ShipID          uuid.UUID     `json:"ship_id"`
+	Department      string        `json:"department"`
+	ShiftTemplateID uuid.UUID     `json:"shift_template_id"`
+	PositionCode    string        `json:"position_code"`
+	DeckID          uuid.NullUUID `json:"deck_id"`
+	AreaID          uuid.NullUUID `json:"area_id"`
+	MinStaff        int16         `json:"min_staff"`
+	MaxStaff        *int16        `json:"max_staff"`
+	DaysOfWeek      []int16       `json:"days_of_week"`
+	ValidFrom       pgtype.Date   `json:"valid_from"`
+	ValidTo         pgtype.Date   `json:"valid_to"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	Version         int64         `json:"version"`
+	DeletedAt       *time.Time    `json:"deleted_at"`
+}
+
+type Deck struct {
+	ID        uuid.UUID  `json:"id"`
+	ShipID    uuid.UUID  `json:"ship_id"`
+	Level     int32      `json:"level"`
+	Name      string     `json:"name"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Version   int64      `json:"version"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+type FeedbackInsight struct {
+	ID           uuid.UUID `json:"id"`
+	ResponseID   uuid.UUID `json:"response_id"`
+	ShipID       uuid.UUID `json:"ship_id"`
+	VoyageID     uuid.UUID `json:"voyage_id"`
+	Topic        string    `json:"topic"`
+	AreaType     *string   `json:"area_type"`
+	DeckLevel    *int32    `json:"deck_level"`
+	ServiceCode  *string   `json:"service_code"`
+	Severity     *int16    `json:"severity"`
+	Sentiment    *int16    `json:"sentiment"`
+	ModelVersion string    `json:"model_version"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type FeedbackResponse struct {
+	ID             uuid.UUID  `json:"id"`
+	ShipID         uuid.UUID  `json:"ship_id"`
+	VoyageID       uuid.UUID  `json:"voyage_id"`
+	RespondentType string     `json:"respondent_type"`
+	RespondentRef  *string    `json:"respondent_ref"`
+	Language       *string    `json:"language"`
+	TextRedacted   string     `json:"text_redacted"`
+	SubmittedAt    time.Time  `json:"submitted_at"`
+	AnalyzedAt     *time.Time `json:"analyzed_at"`
+}
+
+type Guest struct {
+	ID                  uuid.UUID   `json:"id"`
+	BookingID           uuid.UUID   `json:"booking_id"`
+	FullName            string      `json:"full_name"`
+	DateOfBirth         pgtype.Date `json:"date_of_birth"`
+	Nationality         *string     `json:"nationality"`
+	DocumentType        *string     `json:"document_type"`
+	DocumentEnc         []byte      `json:"document_enc"`
+	DocumentKeyID       *string     `json:"document_key_id"`
+	EmergencyContactEnc []byte      `json:"emergency_contact_enc"`
+	SpecialNeeds        *string     `json:"special_needs"`
+	IsLead              bool        `json:"is_lead"`
+	MusterStation       *string     `json:"muster_station"`
+	CreatedAt           time.Time   `json:"created_at"`
+	UpdatedAt           time.Time   `json:"updated_at"`
+	Version             int64       `json:"version"`
+	DeletedAt           *time.Time  `json:"deleted_at"`
+}
+
+type HubDevice struct {
+	ID                uuid.UUID  `json:"id"`
+	ShipID            uuid.UUID  `json:"ship_id"`
+	Name              string     `json:"name"`
+	Role              string     `json:"role"`
+	Epoch             int32      `json:"epoch"`
+	CertSerial        *string    `json:"cert_serial"`
+	CertExpiresAt     *time.Time `json:"cert_expires_at"`
+	Status            string     `json:"status"`
+	SoftwareVersion   *string    `json:"software_version"`
+	LastSeenAt        *time.Time `json:"last_seen_at"`
+	LastSeqApplied    int64      `json:"last_seq_applied"`
+	LastAckedLocalSeq int64      `json:"last_acked_local_seq"`
+	SyncLagSeconds    *int32     `json:"sync_lag_seconds"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
+	Version           int64      `json:"version"`
+	DeletedAt         *time.Time `json:"deleted_at"`
+}
+
+type JobRun struct {
+	ID              uuid.UUID  `json:"id"`
+	VoyageID        uuid.UUID  `json:"voyage_id"`
+	JobType         string     `json:"job_type"`
+	ScheduleVersion int32      `json:"schedule_version"`
+	Status          string     `json:"status"`
+	Attempt         int32      `json:"attempt"`
+	StartedAt       time.Time  `json:"started_at"`
+	FinishedAt      *time.Time `json:"finished_at"`
+	Error           *string    `json:"error"`
+}
+
+type LaborRule struct {
+	ID        uuid.UUID       `json:"id"`
+	TenantID  uuid.UUID       `json:"tenant_id"`
+	ShipID    uuid.NullUUID   `json:"ship_id"`
+	RuleCode  string          `json:"rule_code"`
+	Severity  string          `json:"severity"`
+	Params    json.RawMessage `json:"params"`
+	ValidFrom pgtype.Date     `json:"valid_from"`
+	ValidTo   pgtype.Date     `json:"valid_to"`
+	CreatedAt time.Time       `json:"created_at"`
+	UpdatedAt time.Time       `json:"updated_at"`
+	Version   int64           `json:"version"`
+	DeletedAt *time.Time      `json:"deleted_at"`
+}
+
+type OpsEvent struct {
+	HubID      uuid.UUID       `json:"hub_id"`
+	LocalSeq   int64           `json:"local_seq"`
+	ShipID     uuid.UUID       `json:"ship_id"`
+	VoyageID   uuid.NullUUID   `json:"voyage_id"`
+	Epoch      int32           `json:"epoch"`
+	Entity     string          `json:"entity"`
+	EntityID   string          `json:"entity_id"`
+	Op         string          `json:"op"`
+	Payload    json.RawMessage `json:"payload"`
+	OccurredAt time.Time       `json:"occurred_at"`
+	ReceivedAt time.Time       `json:"received_at"`
+}
+
+type Partner struct {
+	ID           uuid.UUID  `json:"id"`
+	TenantID     uuid.UUID  `json:"tenant_id"`
+	Name         string     `json:"name"`
+	BusinessType string     `json:"business_type"`
+	ContactName  *string    `json:"contact_name"`
+	ContactEmail *string    `json:"contact_email"`
+	ContactPhone *string    `json:"contact_phone"`
+	Status       string     `json:"status"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	Version      int64      `json:"version"`
+	DeletedAt    *time.Time `json:"deleted_at"`
+}
+
+type PartnerContract struct {
+	ID              uuid.UUID   `json:"id"`
+	ShipID          uuid.UUID   `json:"ship_id"`
+	PartnerID       uuid.UUID   `json:"partner_id"`
+	StartsOn        pgtype.Date `json:"starts_on"`
+	EndsOn          pgtype.Date `json:"ends_on"`
+	FeeModel        *string     `json:"fee_model"`
+	FeeAmountCents  *int64      `json:"fee_amount_cents"`
+	Currency        *string     `json:"currency"`
+	TermsStorageKey *string     `json:"terms_storage_key"`
+	Status          string      `json:"status"`
+	CreatedAt       time.Time   `json:"created_at"`
+	UpdatedAt       time.Time   `json:"updated_at"`
+	Version         int64       `json:"version"`
+	DeletedAt       *time.Time  `json:"deleted_at"`
+}
+
+type PartnerService struct {
+	ID              uuid.UUID     `json:"id"`
+	ShipID          uuid.UUID     `json:"ship_id"`
+	PartnerID       uuid.UUID     `json:"partner_id"`
+	AreaID          uuid.NullUUID `json:"area_id"`
+	Name            string        `json:"name"`
+	Category        string        `json:"category"`
+	PriceCents      *int64        `json:"price_cents"`
+	Currency        *string       `json:"currency"`
+	RequiresSlot    bool          `json:"requires_slot"`
+	DefaultCapacity *int32        `json:"default_capacity"`
+	IsActive        bool          `json:"is_active"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+	Version         int64         `json:"version"`
+	DeletedAt       *time.Time    `json:"deleted_at"`
+}
+
+type PartnerSlot struct {
+	ID           uuid.UUID     `json:"id"`
+	ShipID       uuid.UUID     `json:"ship_id"`
+	PartnerID    uuid.UUID     `json:"partner_id"`
+	AreaID       uuid.UUID     `json:"area_id"`
+	VoyageID     uuid.NullUUID `json:"voyage_id"`
+	ServiceID    uuid.NullUUID `json:"service_id"`
+	StartAt      time.Time     `json:"start_at"`
+	EndAt        time.Time     `json:"end_at"`
+	Capacity     *int32        `json:"capacity"`
+	Status       string        `json:"status"`
+	Source       string        `json:"source"`
+	RequestedBy  uuid.NullUUID `json:"requested_by"`
+	DecidedBy    uuid.NullUUID `json:"decided_by"`
+	DecidedAt    *time.Time    `json:"decided_at"`
+	DecisionNote *string       `json:"decision_note"`
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	Version      int64         `json:"version"`
+	DeletedAt    *time.Time    `json:"deleted_at"`
+}
+
+type PartnerStaff struct {
+	ID        uuid.UUID   `json:"id"`
+	ShipID    uuid.UUID   `json:"ship_id"`
+	PartnerID uuid.UUID   `json:"partner_id"`
+	FullName  string      `json:"full_name"`
+	RoleTitle *string     `json:"role_title"`
+	Phone     *string     `json:"phone"`
+	Status    string      `json:"status"`
+	ValidFrom pgtype.Date `json:"valid_from"`
+	ValidTo   pgtype.Date `json:"valid_to"`
+	CreatedAt time.Time   `json:"created_at"`
+	UpdatedAt time.Time   `json:"updated_at"`
+	Version   int64       `json:"version"`
+	DeletedAt *time.Time  `json:"deleted_at"`
+}
+
+type Port struct {
+	ID          uuid.UUID           `json:"id"`
+	UnLocode    string              `json:"un_locode"`
+	Name        string              `json:"name"`
+	CountryCode string              `json:"country_code"`
+	Latitude    decimal.NullDecimal `json:"latitude"`
+	Longitude   decimal.NullDecimal `json:"longitude"`
+	Timezone    string              `json:"timezone"`
+	CreatedAt   time.Time           `json:"created_at"`
+	UpdatedAt   time.Time           `json:"updated_at"`
+	Version     int64               `json:"version"`
+	DeletedAt   *time.Time          `json:"deleted_at"`
+}
+
+type PortCall struct {
+	ID              uuid.UUID  `json:"id"`
+	ShipID          uuid.UUID  `json:"ship_id"`
+	VoyageID        uuid.UUID  `json:"voyage_id"`
+	PortID          uuid.UUID  `json:"port_id"`
+	Sequence        int32      `json:"sequence"`
+	Eta             *time.Time `json:"eta"`
+	Etd             *time.Time `json:"etd"`
+	Ata             *time.Time `json:"ata"`
+	Atd             *time.Time `json:"atd"`
+	AllowsEmbark    bool       `json:"allows_embark"`
+	AllowsDisembark bool       `json:"allows_disembark"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+	Version         int64      `json:"version"`
+	DeletedAt       *time.Time `json:"deleted_at"`
+}
+
+type RefreshToken struct {
+	ID          uuid.UUID     `json:"id"`
+	SubjectType string        `json:"subject_type"`
+	SubjectID   uuid.UUID     `json:"subject_id"`
+	FamilyID    uuid.UUID     `json:"family_id"`
+	TokenHash   []byte        `json:"token_hash"`
+	IssuedAt    time.Time     `json:"issued_at"`
+	ExpiresAt   time.Time     `json:"expires_at"`
+	UsedAt      *time.Time    `json:"used_at"`
+	RevokedAt   *time.Time    `json:"revoked_at"`
+	ReplacedBy  uuid.NullUUID `json:"replaced_by"`
+	UserAgent   *string       `json:"user_agent"`
+}
+
+type Revocation struct {
+	ID          uuid.UUID  `json:"id"`
+	ShipID      uuid.UUID  `json:"ship_id"`
+	SubjectType string     `json:"subject_type"`
+	SubjectID   string     `json:"subject_id"`
+	Reason      *string    `json:"reason"`
+	RevokedAt   time.Time  `json:"revoked_at"`
+	ExpiresAt   *time.Time `json:"expires_at"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	Version     int64      `json:"version"`
+	DeletedAt   *time.Time `json:"deleted_at"`
+}
+
+type Room struct {
+	ID         uuid.UUID  `json:"id"`
+	ShipID     uuid.UUID  `json:"ship_id"`
+	DeckID     uuid.UUID  `json:"deck_id"`
+	Number     string     `json:"number"`
+	RoomType   string     `json:"room_type"`
+	Capacity   int16      `json:"capacity"`
+	IsBookable bool       `json:"is_bookable"`
+	Layout     []byte     `json:"layout"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+	Version    int64      `json:"version"`
+	DeletedAt  *time.Time `json:"deleted_at"`
+}
+
+type ServiceBooking struct {
+	ID               uuid.UUID     `json:"id"`
+	BookingID        uuid.UUID     `json:"booking_id"`
+	PartnerServiceID uuid.UUID     `json:"partner_service_id"`
+	SlotID           uuid.NullUUID `json:"slot_id"`
+	GuestID          uuid.NullUUID `json:"guest_id"`
+	Quantity         int16         `json:"quantity"`
+	Status           string        `json:"status"`
+	Source           string        `json:"source"`
+	IdempotencyKey   *string       `json:"idempotency_key"`
+	PriceCents       *int64        `json:"price_cents"`
+	CreatedAt        time.Time     `json:"created_at"`
+	UpdatedAt        time.Time     `json:"updated_at"`
+	Version          int64         `json:"version"`
+	DeletedAt        *time.Time    `json:"deleted_at"`
+}
+
+type ShiftTemplate struct {
+	ID         uuid.UUID   `json:"id"`
+	ShipID     uuid.UUID   `json:"ship_id"`
+	Department string      `json:"department"`
+	Code       string      `json:"code"`
+	Name       string      `json:"name"`
+	StartTime  pgtype.Time `json:"start_time"`
+	EndTime    pgtype.Time `json:"end_time"`
+	CreatedAt  time.Time   `json:"created_at"`
+	UpdatedAt  time.Time   `json:"updated_at"`
+	Version    int64       `json:"version"`
+	DeletedAt  *time.Time  `json:"deleted_at"`
+}
+
+type Ship struct {
+	ID        uuid.UUID  `json:"id"`
+	TenantID  uuid.UUID  `json:"tenant_id"`
+	Name      string     `json:"name"`
+	ImoNumber *string    `json:"imo_number"`
+	FlagState *string    `json:"flag_state"`
+	Timezone  string     `json:"timezone"`
+	Status    string     `json:"status"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Version   int64      `json:"version"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+type ShipDevice struct {
+	ID           uuid.UUID  `json:"id"`
+	ShipID       uuid.UUID  `json:"ship_id"`
+	DeviceName   string     `json:"device_name"`
+	DeviceType   string     `json:"device_type"`
+	TokenHash    []byte     `json:"token_hash"`
+	Status       string     `json:"status"`
+	RegisteredAt time.Time  `json:"registered_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	Version      int64      `json:"version"`
+	DeletedAt    *time.Time `json:"deleted_at"`
+}
+
+type ShipSeq struct {
+	ShipID  uuid.UUID `json:"ship_id"`
+	LastSeq int64     `json:"last_seq"`
+}
+
+type Snapshot struct {
+	ID            uuid.UUID     `json:"id"`
+	ShipID        uuid.UUID     `json:"ship_id"`
+	VoyageID      uuid.NullUUID `json:"voyage_id"`
+	Phase         string        `json:"phase"`
+	SeqBase       int64         `json:"seq_base"`
+	SchemaVersion int32         `json:"schema_version"`
+	StorageKey    string        `json:"storage_key"`
+	Sha256        string        `json:"sha256"`
+	SizeBytes     *int64        `json:"size_bytes"`
+	Kid           string        `json:"kid"`
+	Signature     string        `json:"signature"`
+	Status        string        `json:"status"`
+	CreatedAt     time.Time     `json:"created_at"`
+}
+
+type Staff struct {
+	ID             uuid.UUID       `json:"id"`
+	TenantID       uuid.UUID       `json:"tenant_id"`
+	ShipID         uuid.NullUUID   `json:"ship_id"`
+	EmployeeCode   string          `json:"employee_code"`
+	FullName       string          `json:"full_name"`
+	Department     string          `json:"department"`
+	RoleTitle      *string         `json:"role_title"`
+	IsSupervisor   bool            `json:"is_supervisor"`
+	Languages      []string        `json:"languages"`
+	Phone          *string         `json:"phone"`
+	Certifications json.RawMessage `json:"certifications"`
+	Status         string          `json:"status"`
+	HiredOn        pgtype.Date     `json:"hired_on"`
+	CreatedAt      time.Time       `json:"created_at"`
+	UpdatedAt      time.Time       `json:"updated_at"`
+	Version        int64           `json:"version"`
+	DeletedAt      *time.Time      `json:"deleted_at"`
+}
+
+type StaffCredential struct {
+	ID           uuid.UUID  `json:"id"`
+	StaffID      uuid.UUID  `json:"staff_id"`
+	PinHash      string     `json:"pin_hash"`
+	PinUpdatedAt time.Time  `json:"pin_updated_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	Version      int64      `json:"version"`
+	DeletedAt    *time.Time `json:"deleted_at"`
+}
+
+type StaffLeafe struct {
+	ID        uuid.UUID  `json:"id"`
+	StaffID   uuid.UUID  `json:"staff_id"`
+	LeaveType string     `json:"leave_type"`
+	StartsAt  time.Time  `json:"starts_at"`
+	EndsAt    time.Time  `json:"ends_at"`
+	Note      *string    `json:"note"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Version   int64      `json:"version"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+type Tenant struct {
+	ID        uuid.UUID  `json:"id"`
+	Name      string     `json:"name"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	Version   int64      `json:"version"`
+	DeletedAt *time.Time `json:"deleted_at"`
+}
+
+type Voyage struct {
+	ID               uuid.UUID  `json:"id"`
+	ShipID           uuid.UUID  `json:"ship_id"`
+	Code             string     `json:"code"`
+	Status           string     `json:"status"`
+	DepartureAt      time.Time  `json:"departure_at"`
+	ArrivalAt        time.Time  `json:"arrival_at"`
+	BoardingOpensAt  *time.Time `json:"boarding_opens_at"`
+	ManifestFrozenAt *time.Time `json:"manifest_frozen_at"`
+	Ownership        string     `json:"ownership"`
+	ScheduleVersion  int32      `json:"schedule_version"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	Version          int64      `json:"version"`
+	DeletedAt        *time.Time `json:"deleted_at"`
+}

@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/ren0503/tycoon/internal/auth"
 	"github.com/ren0503/tycoon/internal/httpserver/handlers"
 	custommiddleware "github.com/ren0503/tycoon/internal/httpserver/middleware"
 )
@@ -16,6 +17,8 @@ type RouterConfig struct {
 	Logger             *slog.Logger
 	DB                 handlers.Pinger
 	CORSAllowedOrigins []string
+	Provider           auth.Provider
+	APIRoutes          func(r chi.Router)
 }
 
 // NewRouter builds the Chi router with technical routes and foundation middleware.
@@ -27,6 +30,17 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	r.Use(custommiddleware.CORS(cfg.CORSAllowedOrigins))
 
 	handlers.Register(r, cfg.DB, cfg.Logger)
+
+	if cfg.APIRoutes != nil {
+		provider := cfg.Provider
+		if provider == nil {
+			provider = auth.DenyAllProvider{}
+		}
+		r.Route("/v1", func(r chi.Router) {
+			r.Use(custommiddleware.Authenticate(provider, cfg.Logger))
+			cfg.APIRoutes(r)
+		})
+	}
 
 	return r
 }

@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/ren0503/tycoon/internal/app"
+	"github.com/ren0503/tycoon/internal/auth"
 	"github.com/ren0503/tycoon/internal/awsconfig"
 	"github.com/ren0503/tycoon/internal/config"
 	"github.com/ren0503/tycoon/internal/database"
@@ -45,14 +46,31 @@ func run() error {
 		return err
 	}
 
+	provider, err := authProvider(cfg)
+	if err != nil {
+		db.Close()
+		return err
+	}
+
+	modules := app.BuildModules(db)
+
 	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:             logger,
 		DB:                 db,
 		CORSAllowedOrigins: cfg.CORS.AllowedOrigins,
+		Provider:           provider,
+		APIRoutes:          modules.RegisterRoutes,
 	})
 	server := httpserver.NewServer(cfg, router)
 	monitor := health.New(db, logger)
 
 	application := app.New(cfg, logger, db, server, monitor)
 	return application.Run(ctx)
+}
+
+func authProvider(cfg *config.Config) (auth.Provider, error) {
+	if cfg.Auth.Mode != "dev" {
+		return auth.DenyAllProvider{}, nil
+	}
+	return auth.NewDevHeaderProvider(cfg.Auth.DevPrincipals)
 }

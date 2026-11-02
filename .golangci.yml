@@ -5,6 +5,17 @@ run:
 
 linters:
   default: standard
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        no-app-or-cmd-imports-from-modules:
+          deny:
+            - pkg: "github.com/ren0503/tycoon/internal/app"
+              desc: business modules must not import the composition root
+            - pkg: "github.com/ren0503/tycoon/cmd"
+              desc: business modules must not import command packages
 
 formatters:
   enable:

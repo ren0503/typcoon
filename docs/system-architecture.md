@@ -78,6 +78,8 @@ A single Go codebase structured as a modular monolith, containing the following 
 
 Main table groups: `ships`, `decks`, `rooms`, `voyages`, `port_calls`, `staff`, `partners`, `partner_slots`, `bookings`, `guests`, `shift_templates` and shift plans, `accounts`, `refresh_tokens`, `hub_devices`, `change_log`, `ship_seq`, `job_runs`, and `audit_log`.
 
+Migration `00002_business_schema.sql` installs the 41-table business baseline (including the `capture_change`/`touch_row` triggers and exclusion constraints) as a faithful copy of `docs/schema.sql`; `db/schema.sql` is kept in sync for sqlc generation.
+
 Conventions: UUID v7 primary keys and common columns `id`, `ship_id`, `created_at`, `updated_at`, `version`, and `deleted_at`. Prevent overlapping slots using PostgreSQL exclusion constraints. Sensitive data (passports) is encrypted at the field level using KMS. Redis locks are only used to reduce load; the final decision is always enforced by database constraints.
 
 ## 4. Edge Architecture (Jetson Hub)
