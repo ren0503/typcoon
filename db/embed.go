@@ -1,3 +1,4 @@
+// Package db embeds the SQL migrations and schema shipped with the service.
 package db
 
 import "embed"

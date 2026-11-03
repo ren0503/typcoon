@@ -550,13 +550,3 @@ func trimPtr(value *string) *string {
 func validation(message string) error {
 	return apperrors.Validation(apperrors.CodeValidationFailed, message)
 }
-
-func execResult(n int64, err error) error {
-	if err != nil {
-		return database.MapPgError(err)
-	}
-	if n == 0 {
-		return database.MapPgError(pgx.ErrNoRows)
-	}
-	return nil
-}

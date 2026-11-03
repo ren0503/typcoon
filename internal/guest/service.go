@@ -24,11 +24,12 @@ type service struct {
 	repo     *repo
 	bookings booking.Service
 	audit    audit.Appender
+	cipher   DocumentCipher
 }
 
 // New builds the guest service.
-func New(pool *pgxpool.Pool, bookings booking.Service, appender audit.Appender) Service {
-	return &service{repo: newRepo(pool), bookings: bookings, audit: appender}
+func New(pool *pgxpool.Pool, bookings booking.Service, appender audit.Appender, documentCipher DocumentCipher) Service {
+	return &service{repo: newRepo(pool), bookings: bookings, audit: appender, cipher: documentCipher}
 }
 
 func (s *service) Create(ctx context.Context, p auth.Principal, bookingID uuid.UUID, input Input) (View, error) {
@@ -38,6 +39,12 @@ func (s *service) Create(ctx context.Context, p auth.Principal, bookingID uuid.U
 	}
 	if strings.TrimSpace(input.FullName) == "" {
 		return View{}, validation("Guest full name is required.")
+	}
+	if err := validateCiphertext(s.cipher, input.DocumentEnc, "document_enc"); err != nil {
+		return View{}, err
+	}
+	if err := validateCiphertext(s.cipher, input.EmergencyContactEnc, "emergency_contact_enc"); err != nil {
+		return View{}, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {

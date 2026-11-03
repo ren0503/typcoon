@@ -21,35 +21,36 @@ No AWS account or credentials are required for local development or tests.
 
 ```bash
 cp .env.example .env
-make docker-up          # start PostgreSQL (and the backend container)
-make migrate-up         # apply migrations from the host
-make run                # run the backend from source
+docker compose up -d postgres   # PostgreSQL only; the API runs from source
+make sqlc                       # regenerate sqlc models/queries (already committed)
+make migrate-up                 # apply the foundation + 41-table business schema
+make run                        # start the API on :8080
 ```
 
 Then verify:
 
 ```bash
-cp .env.example .env
-make sqlc               # regenerate sqlc models/queries after schema changes
-make migrate-up         # apply the foundation + 41-table business schema
-make run                # start the API on :8080
-
 curl -i http://localhost:8080/health
 curl -i http://localhost:8080/ready
 ```
 
 Business endpoints live under `/v1` and require an authenticated principal. Local development uses
-the explicit allowlist provider:
+the explicit allowlist provider from `.env`:
 
 ```bash
 AUTH_MODE=dev
 AUTH_DEV_PRINCIPALS=system:dev-1:00000000-0000-0000-0000-000000000000
 # then send: X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000
-curl -i -H "X-Dev-Principal: $AUTH_DEV_PRINCIPALS" http://localhost:8080/v1/tenants
+curl -i -H "X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000" \
+  http://localhost:8080/v1/tenants
 ```
 
 `AUTH_MODE=dev` is rejected when `APP_ENV=production`. `AUTH_MODE=jwt` is reserved for the later auth
-feature and currently denies all requests. No AWS account or credentials are required locally.
+feature and currently denies all requests. No AWS account or credentials are required locally
+(`AWS_EC2_METADATA_DISABLED=true` is set in `.env.example`).
+
+Stop the database with `docker compose down` (add `-v` to remove the volume). If you prefer the full
+containerized stack, use `make docker-up` instead of `docker compose up -d postgres && make run`.
 
 Expected responses:
 

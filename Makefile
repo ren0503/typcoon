@@ -1,3 +1,10 @@
+# Canonical entry points (identical locally and in CI):
+#   make test             -> unit + OpenAPI spec lint, no infrastructure required
+#   make test-integration -> build-tag integration suites via Testcontainers (Docker daemon required)
+# CI should run both targets; if Docker is unavailable, only `make test` can run and the
+# integration suites are compile-checked with:
+#   go test -tags=integration -run '^$' ./...
+
 SHELL := /bin/sh
 
 GO ?= go
@@ -66,3 +73,9 @@ terraform-fmt:
 terraform-validate:
 	terraform -chdir=terraform init -backend=false
 	terraform -chdir=terraform validate
+
+# Local/CI parity: `make test` must stay infrastructure-free. `make test-integration`
+# starts disposable PostgreSQL containers per test and is the only target that needs Docker.
+# The OpenAPI contract suite lives under internal/httpserver and validates the spec in both modes
+# (spec lint in `make test`, mounted-operation and request/response round-trip checks in
+# `make test-integration`).

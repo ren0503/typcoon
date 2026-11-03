@@ -88,11 +88,11 @@ func MapPgError(err error) error {
 		if len(pgErr.Code) < 2 {
 			return apperrors.Internal(err)
 		}
-		switch {
-		case pgErr.Code[:2] == "23":
+		switch pgErr.Code[:2] {
+		case "23":
 			return apperrors.Wrap(err, apperrors.CodeConflict,
 				"Resource conflicts with an existing record.", 409)
-		case pgErr.Code[:2] == "22":
+		case "22":
 			return apperrors.Wrap(err, apperrors.CodeValidationFailed,
 				"Invalid value.", 422)
 		default:

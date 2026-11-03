@@ -15,7 +15,7 @@ func TestOwnershipCoversAllTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open schema: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	found := make(map[string]bool)
 	scanner := bufio.NewScanner(f)

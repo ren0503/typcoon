@@ -51,7 +51,24 @@ Payments and folios (room accounts), accounting, third-party PMS integrations, a
 
 ### 3.2 Backend
 
-A single Go codebase structured as a modular monolith, containing the following modules: `ship`, `voyage`, `staff`, `partner`, `guest`, `booking`, `sync`, and `auth`. Modules communicate with one another only through interfaces. The same source code is deployed as two groups: API (handles requests) and workers (process SQS queues). Suggested libraries: chi or gin, pgx + sqlc, goose or golang-migrate, slog, and oapi-codegen.
+A single Go codebase structured as a modular monolith with twelve modules. Modules communicate with one another only through the public interfaces declared in their `module.go`; no module imports another module's repository or generated query layer directly. The same source code is deployed as two groups: API (handles requests) and workers (process SQS queues). Suggested libraries: chi or gin, pgx + sqlc, goose or golang-migrate, slog, and oapi-codegen.
+
+| Module | Owned tables / responsibility | HTTP surface | Audit emission |
+| --- | --- | --- | --- |
+| `tenant` | `tenants`; root tenant lifecycle | `/v1/tenants` | No (deferred) |
+| `ship` | `ships`, `decks`, `areas`, `rooms`; ship master data and capacity | `/v1/ships`, `/v1/decks`, `/v1/areas`, `/v1/rooms` | No (deferred) |
+| `voyage` | `ports`, `voyages`, `port_calls`; itinerary and voyage windows | `/v1/ports`, `/v1/voyages`, `/v1/port-calls` | No (deferred) |
+| `staff` | `staff`, `staff_leaves`, `staff_credentials`, `shift_templates`, `coverage_requirements`, `labor_rules`, `autonomy_policies` | `/v1/staff`, `/v1/shift-templates`, `/v1/coverage-requirements`, `/v1/labor-rules`, `/v1/autonomy-policies` | Yes (**create/update/soft-delete**, `staff.*`) |
+| `partner` | `partners`, `partner_contracts`, `partner_staff`, `partner_services`, `partner_slots` | `/v1/partners`, `/v1/partner-contracts`, `/v1/partner-staff`, `/v1/partner-services`, `/v1/partner-slots` | No (deferred) |
+| `booking` | `bookings`, `service_bookings`; reservation and idempotent booking writes | `/v1/bookings`, `/v1/service-bookings` | Yes (**create/update/soft-delete**, `booking.*`, `service_booking.*`) |
+| `guest` | `guests`, `boarding_passes`; opaque encrypted documents | `/v1/bookings/{id}/guests`, `/v1/guests`, `/v1/boarding-passes` | Yes (**create/update/soft-delete**, `guest.*`) |
+| `auth` | `admin_users`, `admin_ship_access`, `accounts`, `account_identities`, `refresh_tokens`; principal resolution and token hashes | none in this phase | No (deferred) |
+| `sync` | `hub_devices`, `ship_devices`, `revocations`, `snapshots`, `job_runs`, `ops_events`; read-only `ship_seq`/`change_log` | none (internal ops only) | No (internal ops metadata) |
+| `audit` | `audit_log`; shared append-only appender used inside caller transactions | none | Owns the append path |
+| `ai` | `ai_params`; versioned metadata only, no signing workflow | none in this phase | No (deferred) |
+| `feedback` | `feedback`, `feedback_insights`; submit/read only | none in this phase | No (deferred) |
+
+Ownership boundaries: the table owner is the only module allowed to write its rows. Cross-module reads go through interface methods (for example `ship.Service.TenantID`, `voyage.Service.Lookup`, `booking.Service.BookingExists`) and are re-checked for tenant/ship scope. Audit emission is deliberately limited to `staff`, `booking`, and `guest` in this baseline; `audit.Appender.AppendTx` must be called inside the same transaction as the business write so a failed audit append rolls the write back. The `sync`, `auth`, `ai`, and `feedback` modules are internal in this phase and register no HTTP routes; `change_log` and `ship_seq` remain trigger-owned and are never written by application code.
 
 ### 3.3 Backend Responsibilities
 

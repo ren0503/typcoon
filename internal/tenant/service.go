@@ -28,7 +28,7 @@ func (s *service) Create(ctx context.Context, principal auth.Principal, input Cr
 	if name == "" {
 		return sqlc.Tenant{}, apperrors.Validation(apperrors.CodeValidationFailed, "Tenant name is required.")
 	}
-	id := uuid.Nil
+	var id uuid.UUID
 	if principal.ActorType != auth.ActorSystem && principal.TenantID != uuid.Nil {
 		id = principal.TenantID
 	} else {

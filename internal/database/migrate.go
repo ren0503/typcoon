@@ -1,3 +1,4 @@
+// Package database owns connection lifecycle, migrations, and pg error mapping.
 package database
 
 import (

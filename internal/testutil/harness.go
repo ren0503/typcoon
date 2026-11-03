@@ -67,7 +67,7 @@ func ApplyMigrations(t *testing.T, dsn string) {
 
 // MigrateUp re-runs migrations and returns the applied results; used to prove
 // re-running is harmless.
-func MigrateUp(t *testing.T, dsn string) (*goose.MigrationResult, error) {
+func MigrateUp(t *testing.T, dsn string) ([]*goose.MigrationResult, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

@@ -1,3 +1,4 @@
+// Package apperrors defines the shared public error envelope and error codes.
 package apperrors
 
 import (

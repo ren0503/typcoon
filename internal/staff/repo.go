@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ren0503/tycoon/internal/database"
@@ -11,16 +12,20 @@ import (
 )
 
 type repo struct {
-	q *sqlc.Queries
+	pool *pgxpool.Pool
+	q    *sqlc.Queries
 }
 
 func newRepo(pool *pgxpool.Pool) *repo {
-	return &repo{q: sqlc.New(pool)}
+	return &repo{pool: pool, q: sqlc.New(pool)}
 }
 
-func (r *repo) createStaff(ctx context.Context, p sqlc.CreateStaffParams) (sqlc.Staff, error) {
-	row, err := r.q.CreateStaff(ctx, p)
-	return row, database.MapPgError(err)
+func (r *repo) begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, database.MapPgError(err)
+	}
+	return tx, nil
 }
 
 func (r *repo) getStaff(ctx context.Context, id uuid.UUID) (sqlc.Staff, error) {
@@ -31,16 +36,6 @@ func (r *repo) getStaff(ctx context.Context, id uuid.UUID) (sqlc.Staff, error) {
 func (r *repo) listStaff(ctx context.Context, p sqlc.ListStaffParams) ([]sqlc.Staff, error) {
 	rows, err := r.q.ListStaff(ctx, p)
 	return rows, database.MapPgError(err)
-}
-
-func (r *repo) updateStaff(ctx context.Context, p sqlc.UpdateStaffParams) (sqlc.Staff, error) {
-	row, err := r.q.UpdateStaff(ctx, p)
-	return row, database.MapPgError(err)
-}
-
-func (r *repo) deleteStaff(ctx context.Context, id uuid.UUID) error {
-	n, err := r.q.SoftDeleteStaff(ctx, id)
-	return execResult(n, err)
 }
 
 func (r *repo) staffExists(ctx context.Context, id uuid.UUID) (bool, error) {

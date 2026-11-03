@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ren0503/tycoon/internal/apperrors"
+	"github.com/ren0503/tycoon/internal/audit"
 	"github.com/ren0503/tycoon/internal/auth"
 	"github.com/ren0503/tycoon/internal/database"
 	"github.com/ren0503/tycoon/internal/database/sqlc"
@@ -30,11 +31,12 @@ var (
 type service struct {
 	repo  *repo
 	ships ship.Service
+	audit audit.Appender
 }
 
 // New builds the staff service.
-func New(pool *pgxpool.Pool, ships ship.Service) Service {
-	return &service{repo: newRepo(pool), ships: ships}
+func New(pool *pgxpool.Pool, ships ship.Service, appender audit.Appender) Service {
+	return &service{repo: newRepo(pool), ships: ships, audit: appender}
 }
 
 func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input StaffInput) (sqlc.Staff, error) {
@@ -59,13 +61,33 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input Staff
 	if err != nil {
 		return sqlc.Staff{}, apperrors.Internal(err)
 	}
-	row, err := s.repo.createStaff(ctx, sqlc.CreateStaffParams{
+	tx, err := s.repo.begin(ctx)
+	if err != nil {
+		return sqlc.Staff{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	row, err := sqlc.New(tx).CreateStaff(ctx, sqlc.CreateStaffParams{
 		ID: id, TenantID: p.TenantID, ShipID: optionalUUID(input.ShipID), EmployeeCode: code, FullName: name,
 		Department: input.Department, RoleTitle: trimPtr(input.RoleTitle), IsSupervisor: input.IsSupervisor,
 		Languages: emptyStrings(input.Languages), Phone: trimPtr(input.Phone), Certifications: certifications,
 		Status: "active", HiredOn: input.HiredOn,
 	})
-	return row, err
+	if err != nil {
+		return sqlc.Staff{}, database.MapPgError(err)
+	}
+	shipID := uuid.Nil
+	if row.ShipID.Valid {
+		shipID = row.ShipID.UUID
+	}
+	if err := s.appendAudit(ctx, tx, p, "staff.created", row.ID, row.TenantID, shipID, map[string]any{
+		"employee_code": row.EmployeeCode, "department": row.Department, "status": row.Status,
+	}); err != nil {
+		return sqlc.Staff{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return sqlc.Staff{}, database.MapPgError(err)
+	}
+	return row, nil
 }
 
 func (s *service) GetStaff(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.Staff, error) {
@@ -161,19 +183,95 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 	if input.HiredOn != nil {
 		current.HiredOn = *input.HiredOn
 	}
-	return s.repo.updateStaff(ctx, sqlc.UpdateStaffParams{
+	tx, err := s.repo.begin(ctx)
+	if err != nil {
+		return sqlc.Staff{}, err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	row, err := sqlc.New(tx).UpdateStaff(ctx, sqlc.UpdateStaffParams{
 		ID: id, ShipID: current.ShipID, EmployeeCode: current.EmployeeCode, FullName: current.FullName,
 		Department: current.Department, RoleTitle: current.RoleTitle, IsSupervisor: current.IsSupervisor,
 		Languages: current.Languages, Phone: current.Phone, Certifications: current.Certifications,
 		Status: current.Status, HiredOn: current.HiredOn,
 	})
+	if err != nil {
+		return sqlc.Staff{}, database.MapPgError(err)
+	}
+	shipID := uuid.Nil
+	if row.ShipID.Valid {
+		shipID = row.ShipID.UUID
+	}
+	if err := s.appendAudit(ctx, tx, p, "staff.updated", row.ID, row.TenantID, shipID, map[string]any{
+		"employee_code": row.EmployeeCode, "department": row.Department, "status": row.Status,
+	}); err != nil {
+		return sqlc.Staff{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return sqlc.Staff{}, database.MapPgError(err)
+	}
+	return row, nil
 }
 
 func (s *service) DeleteStaff(ctx context.Context, p auth.Principal, id uuid.UUID) error {
-	if _, err := s.GetStaff(ctx, p, id); err != nil {
+	current, err := s.GetStaff(ctx, p, id)
+	if err != nil {
 		return err
 	}
-	return s.repo.deleteStaff(ctx, id)
+	tx, err := s.repo.begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+	n, err := sqlc.New(tx).SoftDeleteStaff(ctx, id)
+	if err != nil {
+		return database.MapPgError(err)
+	}
+	if n == 0 {
+		return database.MapPgError(pgx.ErrNoRows)
+	}
+	shipID := uuid.Nil
+	if current.ShipID.Valid {
+		shipID = current.ShipID.UUID
+	}
+	if err := s.appendAudit(ctx, tx, p, "staff.deleted", id, current.TenantID, shipID, nil); err != nil {
+		return err
+	}
+	return database.MapPgError(tx.Commit(ctx))
+}
+
+func (s *service) appendAudit(ctx context.Context, tx pgx.Tx, p auth.Principal, action string, entityID, tenantID, shipID uuid.UUID, details map[string]any) error {
+	if s.audit == nil {
+		return nil
+	}
+	payload := json.RawMessage(`{}`)
+	if details != nil {
+		encoded, err := json.Marshal(details)
+		if err != nil {
+			return apperrors.Internal(err)
+		}
+		payload = encoded
+	}
+	actorID := p.ActorID
+	entity := "staff"
+	entityRef := entityID.String()
+	entry := audit.Entry{
+		Source: "cloud", ActorType: string(p.ActorType), ActorID: optionalString(actorID),
+		Action: action, Entity: &entity, EntityID: &entityRef, Details: payload,
+	}
+	if tenantID != uuid.Nil {
+		_ = tenantID
+	}
+	if shipID != uuid.Nil {
+		entry.ShipID = &shipID
+	}
+	return s.audit.AppendTx(ctx, tx, entry)
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (s *service) StaffExists(ctx context.Context, id uuid.UUID) (bool, error) {

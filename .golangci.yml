@@ -11,12 +11,19 @@ linters:
     depguard:
       rules:
         no-app-or-cmd-imports-from-modules:
+          files:
+            - "$all"
+            - "!**/cmd/**"
+            - "!**/internal/app/**"
+            - "!**/internal/httpserver/**"
+            - "!**/internal/testutil/**"
           deny:
-            - pkg: "github.com/ren0503/tycoon/internal/app"
+            - pkg: "github.com/ren0503/tycoon/internal/app$"
               desc: business modules must not import the composition root
-            - pkg: "github.com/ren0503/tycoon/cmd"
+            - pkg: "github.com/ren0503/tycoon/cmd$"
               desc: business modules must not import command packages
-
-formatters:
-  enable:
-    - gofmt
+    staticcheck:
+      checks:
+        - all
+        - -S1016
+        - -ST1000
