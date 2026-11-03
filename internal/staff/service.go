@@ -3,6 +3,7 @@ package staff
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -29,40 +30,47 @@ var (
 )
 
 type service struct {
-	repo  *repo
-	ships ship.Service
-	audit audit.Appender
+	repo   *repo
+	ships  ship.Service
+	audit  audit.Appender
+	logger *slog.Logger
 }
 
 // New builds the staff service.
-func New(pool *pgxpool.Pool, ships ship.Service, appender audit.Appender) Service {
-	return &service{repo: newRepo(pool), ships: ships, audit: appender}
+func New(pool *pgxpool.Pool, logger *slog.Logger, ships ship.Service, appender audit.Appender) Service {
+	return &service{repo: newRepo(pool), ships: ships, audit: appender, logger: logger.With("module", "staff")}
 }
 
 func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input StaffInput) (sqlc.Staff, error) {
 	if err := s.requireTenant(p); err != nil {
+		s.logger.ErrorContext(ctx, "tenant access denied", "principal", p, "error", err)
 		return sqlc.Staff{}, err
 	}
 	if input.ShipID != nil {
 		if err := s.requireShip(ctx, p, *input.ShipID); err != nil {
+			s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "ship_id", *input.ShipID, "error", err)
 			return sqlc.Staff{}, err
 		}
 	}
 	code := strings.TrimSpace(input.EmployeeCode)
 	name := strings.TrimSpace(input.FullName)
 	if code == "" || name == "" || !departments[input.Department] {
+		s.logger.ErrorContext(ctx, "validation failed", "principal", p, "input", input)
 		return sqlc.Staff{}, validation("Employee code, full name, and a recognised department are required.")
 	}
 	certifications, err := certificationsJSON(input.Certifications)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to parse certifications", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate staff ID", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, apperrors.Internal(err)
 	}
 	tx, err := s.repo.begin(ctx)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to begin transaction", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
@@ -73,6 +81,7 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input Staff
 		Status: "active", HiredOn: input.HiredOn,
 	})
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create staff", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, database.MapPgError(err)
 	}
 	shipID := uuid.Nil
@@ -82,9 +91,11 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input Staff
 	if err := s.appendAudit(ctx, tx, p, "staff.created", row.ID, row.TenantID, shipID, map[string]any{
 		"employee_code": row.EmployeeCode, "department": row.Department, "status": row.Status,
 	}); err != nil {
+		s.logger.ErrorContext(ctx, "failed to append audit entry", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
+		s.logger.ErrorContext(ctx, "failed to commit transaction", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, database.MapPgError(err)
 	}
 	return row, nil
@@ -129,28 +140,33 @@ func (s *service) ListStaff(ctx context.Context, p auth.Principal, shipID *uuid.
 func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUID, input StaffUpdate) (sqlc.Staff, error) {
 	current, err := s.GetStaff(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "staff not found or access denied", "principal", p, "error", err)
 		return sqlc.Staff{}, err
 	}
 	if input.ShipID != nil {
 		if err := s.requireShip(ctx, p, *input.ShipID); err != nil {
+			s.logger.ErrorContext(ctx, "ship not found or access denied", "principal", p, "ship_id", *input.ShipID, "error", err)
 			return sqlc.Staff{}, err
 		}
 		current.ShipID = optionalUUID(input.ShipID)
 	}
 	if input.EmployeeCode != nil {
 		if strings.TrimSpace(*input.EmployeeCode) == "" {
+			s.logger.ErrorContext(ctx, "validation failed: employee code must not be empty", "principal", p, "input", input)
 			return sqlc.Staff{}, validation("Employee code must not be empty.")
 		}
 		current.EmployeeCode = strings.TrimSpace(*input.EmployeeCode)
 	}
 	if input.FullName != nil {
 		if strings.TrimSpace(*input.FullName) == "" {
+			s.logger.ErrorContext(ctx, "validation failed: full name must not be empty", "principal", p, "input", input)
 			return sqlc.Staff{}, validation("Full name must not be empty.")
 		}
 		current.FullName = strings.TrimSpace(*input.FullName)
 	}
 	if input.Department != nil {
 		if !departments[*input.Department] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized department", "principal", p, "input", input)
 			return sqlc.Staff{}, validation("Department is not recognised.")
 		}
 		current.Department = *input.Department
@@ -170,12 +186,14 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 	if input.Certifications != nil {
 		certifications, err := certificationsJSON(input.Certifications)
 		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to parse certifications", "principal", p, "input", input, "error", err)
 			return sqlc.Staff{}, err
 		}
 		current.Certifications = certifications
 	}
 	if input.Status != nil {
 		if !staffStatuses[*input.Status] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized staff status", "principal", p, "input", input)
 			return sqlc.Staff{}, validation("Staff status is not recognised.")
 		}
 		current.Status = *input.Status
@@ -185,6 +203,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 	}
 	tx, err := s.repo.begin(ctx)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to begin transaction", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
@@ -195,6 +214,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		Status: current.Status, HiredOn: current.HiredOn,
 	})
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update staff", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, database.MapPgError(err)
 	}
 	shipID := uuid.Nil
@@ -204,9 +224,11 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 	if err := s.appendAudit(ctx, tx, p, "staff.updated", row.ID, row.TenantID, shipID, map[string]any{
 		"employee_code": row.EmployeeCode, "department": row.Department, "status": row.Status,
 	}); err != nil {
+		s.logger.ErrorContext(ctx, "failed to append audit entry", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
+		s.logger.ErrorContext(ctx, "failed to commit transaction", "principal", p, "input", input, "error", err)
 		return sqlc.Staff{}, database.MapPgError(err)
 	}
 	return row, nil
@@ -215,18 +237,22 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 func (s *service) DeleteStaff(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	current, err := s.GetStaff(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "staff not found or access denied", "principal", p, "error", err)
 		return err
 	}
 	tx, err := s.repo.begin(ctx)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to begin transaction", "principal", p, "staff_id", id, "error", err)
 		return err
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	n, err := sqlc.New(tx).SoftDeleteStaff(ctx, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to delete staff", "principal", p, "staff_id", id, "error", err)
 		return database.MapPgError(err)
 	}
 	if n == 0 {
+		s.logger.ErrorContext(ctx, "staff not found during delete", "principal", p, "staff_id", id)
 		return database.MapPgError(pgx.ErrNoRows)
 	}
 	shipID := uuid.Nil
@@ -234,6 +260,7 @@ func (s *service) DeleteStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		shipID = current.ShipID.UUID
 	}
 	if err := s.appendAudit(ctx, tx, p, "staff.deleted", id, current.TenantID, shipID, nil); err != nil {
+		s.logger.ErrorContext(ctx, "failed to append audit entry", "principal", p, "staff_id", id, "error", err)
 		return err
 	}
 	return database.MapPgError(tx.Commit(ctx))
@@ -280,19 +307,27 @@ func (s *service) StaffExists(ctx context.Context, id uuid.UUID) (bool, error) {
 
 func (s *service) CreateLeave(ctx context.Context, p auth.Principal, staffID uuid.UUID, input LeaveInput) (sqlc.StaffLeafe, error) {
 	if _, err := s.GetStaff(ctx, p, staffID); err != nil {
+		s.logger.ErrorContext(ctx, "staff not found or access denied", "principal", p, "staff_id", staffID, "error", err)
 		return sqlc.StaffLeafe{}, err
 	}
 	if !leaveTypes[input.LeaveType] || !input.EndsAt.After(input.StartsAt) {
+		s.logger.ErrorContext(ctx, "validation failed: unrecognized leave type or end date not after start date", "principal", p, "staff_id", staffID, "input", input)
 		return sqlc.StaffLeafe{}, validation("Leave type must be recognised and end after start.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate leave ID", "principal", p, "staff_id", staffID, "input", input, "error", err)
 		return sqlc.StaffLeafe{}, apperrors.Internal(err)
 	}
-	return s.repo.createLeave(ctx, sqlc.CreateStaffLeaveParams{
+	leave, err := s.repo.createLeave(ctx, sqlc.CreateStaffLeaveParams{
 		ID: id, StaffID: staffID, LeaveType: input.LeaveType, StartsAt: input.StartsAt, EndsAt: input.EndsAt,
 		Note: trimPtr(input.Note),
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create leave", "principal", p, "staff_id", staffID, "input", input, "error", err)
+		return sqlc.StaffLeafe{}, apperrors.Internal(err)
+	}
+	return leave, nil
 }
 
 func (s *service) GetLeave(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.StaffLeafe, error) {
@@ -330,10 +365,12 @@ func (s *service) ListLeaves(ctx context.Context, p auth.Principal, staffID uuid
 func (s *service) UpdateLeave(ctx context.Context, p auth.Principal, id uuid.UUID, input LeaveUpdate) (sqlc.StaffLeafe, error) {
 	current, err := s.GetLeave(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "leave not found or access denied", "principal", p, "leave_id", id, "error", err)
 		return sqlc.StaffLeafe{}, err
 	}
 	if input.LeaveType != nil {
 		if !leaveTypes[*input.LeaveType] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized leave type", "principal", p, "leave_id", id, "input", input)
 			return sqlc.StaffLeafe{}, validation("Leave type is not recognised.")
 		}
 		current.LeaveType = *input.LeaveType
@@ -348,15 +385,22 @@ func (s *service) UpdateLeave(ctx context.Context, p auth.Principal, id uuid.UUI
 		current.Note = trimPtr(input.Note)
 	}
 	if !current.EndsAt.After(current.StartsAt) {
+		s.logger.ErrorContext(ctx, "validation failed: leave end date not after start date", "principal", p, "leave_id", id, "input", input)
 		return sqlc.StaffLeafe{}, validation("Leave end must be after start.")
 	}
-	return s.repo.updateLeave(ctx, sqlc.UpdateStaffLeaveParams{
+	leave, err := s.repo.updateLeave(ctx, sqlc.UpdateStaffLeaveParams{
 		ID: id, LeaveType: current.LeaveType, StartsAt: current.StartsAt, EndsAt: current.EndsAt, Note: current.Note,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update leave", "principal", p, "leave_id", id, "input", input, "error", err)
+		return sqlc.StaffLeafe{}, apperrors.Internal(err)
+	}
+	return leave, nil
 }
 
 func (s *service) DeleteLeave(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetLeave(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "leave not found or access denied", "principal", p, "leave_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteLeave(ctx, id)
@@ -379,48 +423,61 @@ func (s *service) SetCredential(ctx context.Context, p auth.Principal, staffID u
 	}
 	row, err := s.repo.upsertCredential(ctx, sqlc.UpsertStaffCredentialParams{ID: id, StaffID: staffID, PinHash: hash})
 	if err != nil {
-		return CredentialMeta{}, err
+		s.logger.ErrorContext(ctx, "failed to upsert credential", "principal", p, "staff_id", staffID, "pin_hash", hash, "error", err)
+		return CredentialMeta{}, apperrors.Internal(err)
 	}
 	return CredentialMeta{StaffID: row.StaffID, PinUpdatedAt: row.PinUpdatedAt}, nil
 }
 
 func (s *service) CredentialMeta(ctx context.Context, p auth.Principal, staffID uuid.UUID) (CredentialMeta, error) {
 	if _, err := s.GetStaff(ctx, p, staffID); err != nil {
-		return CredentialMeta{}, err
+		s.logger.ErrorContext(ctx, "staff not found or access denied", "principal", p, "staff_id", staffID, "error", err)
+		return CredentialMeta{}, apperrors.Internal(err)
 	}
 	row, err := s.repo.getCredential(ctx, staffID)
 	if err != nil {
-		return CredentialMeta{}, err
+		s.logger.ErrorContext(ctx, "failed to get credential", "principal", p, "staff_id", staffID, "error", err)
+		return CredentialMeta{}, apperrors.Internal(err)
 	}
 	return CredentialMeta{StaffID: row.StaffID, PinUpdatedAt: row.PinUpdatedAt}, nil
 }
 
 func (s *service) CreateShiftTemplate(ctx context.Context, p auth.Principal, shipID uuid.UUID, input ShiftTemplateInput) (sqlc.ShiftTemplate, error) {
 	if err := s.requireShip(ctx, p, shipID); err != nil {
+		s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "ship_id", shipID, "error", err)
 		return sqlc.ShiftTemplate{}, err
 	}
 	code := strings.TrimSpace(input.Code)
 	name := strings.TrimSpace(input.Name)
 	if code == "" || name == "" || !departments[input.Department] || !input.StartTime.Valid || !input.EndTime.Valid {
+		s.logger.ErrorContext(ctx, "validation failed for shift template", "principal", p, "ship_id", shipID, "input", input)
 		return sqlc.ShiftTemplate{}, validation("Shift template code, name, department, and times are required.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate shift template ID", "principal", p, "ship_id", shipID, "input", input, "error", err)
 		return sqlc.ShiftTemplate{}, apperrors.Internal(err)
 	}
-	return s.repo.createShiftTemplate(ctx, sqlc.CreateShiftTemplateParams{
+	shiftTemplate, err := s.repo.createShiftTemplate(ctx, sqlc.CreateShiftTemplateParams{
 		ID: id, ShipID: shipID, Department: input.Department, Code: code, Name: name,
 		StartTime: input.StartTime, EndTime: input.EndTime,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create shift template", "principal", p, "ship_id", shipID, "input", input, "error", err)
+		return sqlc.ShiftTemplate{}, apperrors.Internal(err)
+	}
+	return shiftTemplate, nil
 }
 
 func (s *service) GetShiftTemplate(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.ShiftTemplate, error) {
 	row, err := s.repo.getShiftTemplate(ctx, id)
 	if err != nil {
-		return sqlc.ShiftTemplate{}, err
+		s.logger.ErrorContext(ctx, "failed to get shift template", "principal", p, "shift_template_id", id, "error", err)
+		return sqlc.ShiftTemplate{}, apperrors.Internal(err)
 	}
 	if err := s.requireShip(ctx, p, row.ShipID); err != nil {
-		return sqlc.ShiftTemplate{}, err
+		s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "shift_template_id", id, "ship_id", row.ShipID, "error", err)
+		return sqlc.ShiftTemplate{}, apperrors.Internal(err)
 	}
 	return row, nil
 }
@@ -449,10 +506,12 @@ func (s *service) ListShiftTemplates(ctx context.Context, p auth.Principal, ship
 func (s *service) UpdateShiftTemplate(ctx context.Context, p auth.Principal, id uuid.UUID, input ShiftTemplateUpdate) (sqlc.ShiftTemplate, error) {
 	current, err := s.GetShiftTemplate(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "shift template not found or access denied", "principal", p, "shift_template_id", id, "error", err)
 		return sqlc.ShiftTemplate{}, err
 	}
 	if input.Department != nil {
 		if !departments[*input.Department] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized department", "principal", p, "shift_template_id", id, "input", input)
 			return sqlc.ShiftTemplate{}, validation("Department is not recognised.")
 		}
 		current.Department = *input.Department
@@ -470,45 +529,62 @@ func (s *service) UpdateShiftTemplate(ctx context.Context, p auth.Principal, id 
 		current.EndTime = *input.EndTime
 	}
 	if current.Code == "" || current.Name == "" || !current.StartTime.Valid || !current.EndTime.Valid {
+		s.logger.ErrorContext(ctx, "validation failed: shift template code, name, and times are required", "principal", p, "shift_template_id", id, "input", input)
 		return sqlc.ShiftTemplate{}, validation("Shift template code, name, and times are required.")
 	}
-	return s.repo.updateShiftTemplate(ctx, sqlc.UpdateShiftTemplateParams{
+	shiftTemplate, err := s.repo.updateShiftTemplate(ctx, sqlc.UpdateShiftTemplateParams{
 		ID: id, Department: current.Department, Code: current.Code, Name: current.Name,
 		StartTime: current.StartTime, EndTime: current.EndTime,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update shift template", "principal", p, "shift_template_id", id, "error", err)
+		return sqlc.ShiftTemplate{}, apperrors.Internal(err)
+	}
+	return shiftTemplate, nil
 }
 
 func (s *service) DeleteShiftTemplate(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetShiftTemplate(ctx, p, id); err != nil {
-		return err
+		s.logger.ErrorContext(ctx, "failed to get shift template", "principal", p, "shift_template_id", id, "error", err)
+		return apperrors.Internal(err)
 	}
 	return s.repo.deleteShiftTemplate(ctx, id)
 }
 
 func (s *service) CreateCoverage(ctx context.Context, p auth.Principal, shipID uuid.UUID, input CoverageInput) (sqlc.CoverageRequirement, error) {
 	if err := s.requireShip(ctx, p, shipID); err != nil {
-		return sqlc.CoverageRequirement{}, err
+		s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "ship_id", shipID, "error", err)
+		return sqlc.CoverageRequirement{}, apperrors.Internal(err)
 	}
 	template, err := s.repo.getShiftTemplate(ctx, input.ShiftTemplateID)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to get shift template", "principal", p, "ship_id", shipID, "shift_template_id", input.ShiftTemplateID, "error", err)
 		return sqlc.CoverageRequirement{}, apperrors.Validation(apperrors.CodeInvalidReference, "Shift template does not exist on this ship.")
 	}
 	if template.ShipID != shipID {
+		s.logger.ErrorContext(ctx, "shift template does not belong to ship", "principal", p, "ship_id", shipID, "shift_template_id", input.ShiftTemplateID)
 		return sqlc.CoverageRequirement{}, apperrors.Validation(apperrors.CodeInvalidReference, "Shift template does not exist on this ship.")
 	}
 	if err := validateCoverage(input.Department, input.MinStaff, input.MaxStaff, input.DaysOfWeek, input.ValidFrom, input.ValidTo); err != nil {
+		s.logger.ErrorContext(ctx, "validation failed for coverage requirement", "principal", p, "ship_id", shipID, "input", input, "error", err)
 		return sqlc.CoverageRequirement{}, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate coverage requirement ID", "principal", p, "ship_id", shipID, "input", input, "error", err)
 		return sqlc.CoverageRequirement{}, apperrors.Internal(err)
 	}
-	return s.repo.createCoverage(ctx, sqlc.CreateCoverageRequirementParams{
+	coverage, err := s.repo.createCoverage(ctx, sqlc.CreateCoverageRequirementParams{
 		ID: id, ShipID: shipID, Department: input.Department, ShiftTemplateID: input.ShiftTemplateID,
 		PositionCode: strings.TrimSpace(input.PositionCode), DeckID: optionalUUID(input.DeckID), AreaID: optionalUUID(input.AreaID),
 		MinStaff: input.MinStaff, MaxStaff: input.MaxStaff, DaysOfWeek: input.DaysOfWeek,
 		ValidFrom: input.ValidFrom, ValidTo: input.ValidTo,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create coverage requirement", "principal", p, "ship_id", shipID, "input", input, "error", err)
+		return sqlc.CoverageRequirement{}, apperrors.Internal(err)
+	}
+	return coverage, nil
 }
 
 func (s *service) GetCoverage(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.CoverageRequirement, error) {
@@ -546,7 +622,8 @@ func (s *service) ListCoverage(ctx context.Context, p auth.Principal, shipID uui
 func (s *service) UpdateCoverage(ctx context.Context, p auth.Principal, id uuid.UUID, input CoverageUpdate) (sqlc.CoverageRequirement, error) {
 	current, err := s.GetCoverage(ctx, p, id)
 	if err != nil {
-		return sqlc.CoverageRequirement{}, err
+		s.logger.ErrorContext(ctx, "failed to get coverage requirement", "principal", p, "coverage_id", id, "error", err)
+		return sqlc.CoverageRequirement{}, apperrors.Internal(err)
 	}
 	if input.Department != nil {
 		current.Department = *input.Department
@@ -554,6 +631,7 @@ func (s *service) UpdateCoverage(ctx context.Context, p auth.Principal, id uuid.
 	if input.ShiftTemplateID != nil {
 		template, err := s.repo.getShiftTemplate(ctx, *input.ShiftTemplateID)
 		if err != nil || template.ShipID != current.ShipID {
+			s.logger.ErrorContext(ctx, "shift template does not exist on this ship", "principal", p, "coverage_id", id, "shift_template_id", *input.ShiftTemplateID, "error", err)
 			return sqlc.CoverageRequirement{}, apperrors.Validation(apperrors.CodeInvalidReference, "Shift template does not exist on this ship.")
 		}
 		current.ShiftTemplateID = *input.ShiftTemplateID
@@ -583,17 +661,24 @@ func (s *service) UpdateCoverage(ctx context.Context, p auth.Principal, id uuid.
 		current.ValidTo = *input.ValidTo
 	}
 	if err := validateCoverage(current.Department, current.MinStaff, current.MaxStaff, current.DaysOfWeek, current.ValidFrom, current.ValidTo); err != nil {
+		s.logger.ErrorContext(ctx, "validation failed for coverage requirement", "principal", p, "coverage_id", id, "input", input, "error", err)
 		return sqlc.CoverageRequirement{}, err
 	}
-	return s.repo.updateCoverage(ctx, sqlc.UpdateCoverageRequirementParams{
+	coverage, err := s.repo.updateCoverage(ctx, sqlc.UpdateCoverageRequirementParams{
 		ID: id, Department: current.Department, ShiftTemplateID: current.ShiftTemplateID, PositionCode: current.PositionCode,
 		DeckID: current.DeckID, AreaID: current.AreaID, MinStaff: current.MinStaff, MaxStaff: current.MaxStaff,
 		DaysOfWeek: current.DaysOfWeek, ValidFrom: current.ValidFrom, ValidTo: current.ValidTo,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update coverage requirement", "principal", p, "coverage_id", id, "error", err)
+		return sqlc.CoverageRequirement{}, apperrors.Internal(err)
+	}
+	return coverage, nil
 }
 
 func (s *service) DeleteCoverage(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetCoverage(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "failed to get coverage requirement", "principal", p, "coverage_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteCoverage(ctx, id)
@@ -601,31 +686,42 @@ func (s *service) DeleteCoverage(ctx context.Context, p auth.Principal, id uuid.
 
 func (s *service) CreateLaborRule(ctx context.Context, p auth.Principal, input LaborRuleInput) (sqlc.LaborRule, error) {
 	if err := s.requireTenant(p); err != nil {
+		s.logger.ErrorContext(ctx, "tenant access denied", "principal", p, "error", err)
 		return sqlc.LaborRule{}, err
 	}
 	if input.ShipID != nil {
 		if err := s.requireShip(ctx, p, *input.ShipID); err != nil {
+			s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "ship_id", *input.ShipID, "error", err)
 			return sqlc.LaborRule{}, err
 		}
 	}
 	params, err := objectJSON(input.Params)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to parse labor rule params", "principal", p, "input", input, "error", err)
 		return sqlc.LaborRule{}, err
 	}
 	if strings.TrimSpace(input.RuleCode) == "" || !severities[input.Severity] {
+		s.logger.ErrorContext(ctx, "invalid labor rule input", "principal", p, "input", input, "error", err)
 		return sqlc.LaborRule{}, validation("Rule code and a recognised severity are required.")
 	}
 	if err := validateDateRange(input.ValidFrom, input.ValidTo); err != nil {
+		s.logger.ErrorContext(ctx, "invalid labor rule date range", "principal", p, "input", input, "error", err)
 		return sqlc.LaborRule{}, err
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate labor rule ID", "principal", p, "input", input, "error", err)
 		return sqlc.LaborRule{}, apperrors.Internal(err)
 	}
-	return s.repo.createLaborRule(ctx, sqlc.CreateLaborRuleParams{
+	laborRule, err := s.repo.createLaborRule(ctx, sqlc.CreateLaborRuleParams{
 		ID: id, TenantID: p.TenantID, ShipID: optionalUUID(input.ShipID), RuleCode: strings.TrimSpace(input.RuleCode),
 		Severity: input.Severity, Params: params, ValidFrom: input.ValidFrom, ValidTo: input.ValidTo,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create labor rule", "principal", p, "input", input, "error", err)
+		return sqlc.LaborRule{}, apperrors.Internal(err)
+	}
+	return laborRule, nil
 }
 
 func (s *service) GetLaborRule(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.LaborRule, error) {
@@ -670,10 +766,12 @@ func (s *service) ListLaborRules(ctx context.Context, p auth.Principal, shipID *
 func (s *service) UpdateLaborRule(ctx context.Context, p auth.Principal, id uuid.UUID, input LaborRuleUpdate) (sqlc.LaborRule, error) {
 	current, err := s.GetLaborRule(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to get labor rule", "principal", p, "labor_rule_id", id, "error", err)
 		return sqlc.LaborRule{}, err
 	}
 	if input.ShipID != nil {
 		if err := s.requireShip(ctx, p, *input.ShipID); err != nil {
+			s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "labor_rule_id", id, "ship_id", *input.ShipID, "error", err)
 			return sqlc.LaborRule{}, err
 		}
 		current.ShipID = optionalUUID(input.ShipID)
@@ -683,6 +781,7 @@ func (s *service) UpdateLaborRule(ctx context.Context, p auth.Principal, id uuid
 	}
 	if input.Severity != nil {
 		if !severities[*input.Severity] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized severity", "principal", p, "labor_rule_id", id, "input", input)
 			return sqlc.LaborRule{}, validation("Severity is not recognised.")
 		}
 		current.Severity = *input.Severity
@@ -690,6 +789,7 @@ func (s *service) UpdateLaborRule(ctx context.Context, p auth.Principal, id uuid
 	if input.Params != nil {
 		params, err := objectJSON(input.Params)
 		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to parse labor rule params", "principal", p, "labor_rule_id", id, "input", input, "error", err)
 			return sqlc.LaborRule{}, err
 		}
 		current.Params = params
@@ -701,19 +801,27 @@ func (s *service) UpdateLaborRule(ctx context.Context, p auth.Principal, id uuid
 		current.ValidTo = *input.ValidTo
 	}
 	if current.RuleCode == "" {
+		s.logger.ErrorContext(ctx, "validation failed: labor rule code is required", "principal", p, "labor_rule_id", id, "input", input)
 		return sqlc.LaborRule{}, validation("Rule code is required.")
 	}
 	if err := validateDateRange(current.ValidFrom, current.ValidTo); err != nil {
+		s.logger.ErrorContext(ctx, "invalid labor rule date range", "principal", p, "labor_rule_id", id, "input", input, "error", err)
 		return sqlc.LaborRule{}, err
 	}
-	return s.repo.updateLaborRule(ctx, sqlc.UpdateLaborRuleParams{
+	laborRule, err := s.repo.updateLaborRule(ctx, sqlc.UpdateLaborRuleParams{
 		ID: id, ShipID: current.ShipID, RuleCode: current.RuleCode, Severity: current.Severity,
 		Params: current.Params, ValidFrom: current.ValidFrom, ValidTo: current.ValidTo,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update labor rule", "principal", p, "labor_rule_id", id, "error", err)
+		return sqlc.LaborRule{}, apperrors.Internal(err)
+	}
+	return laborRule, nil
 }
 
 func (s *service) DeleteLaborRule(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetLaborRule(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "failed to get labor rule", "principal", p, "labor_rule_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteLaborRule(ctx, id)
@@ -721,28 +829,38 @@ func (s *service) DeleteLaborRule(ctx context.Context, p auth.Principal, id uuid
 
 func (s *service) CreateAutonomy(ctx context.Context, p auth.Principal, input AutonomyInput) (sqlc.AutonomyPolicy, error) {
 	if err := s.requireTenant(p); err != nil {
+		s.logger.ErrorContext(ctx, "tenant access denied", "principal", p, "error", err)
 		return sqlc.AutonomyPolicy{}, err
 	}
 	if input.ShipID != nil {
 		if err := s.requireShip(ctx, p, *input.ShipID); err != nil {
+			s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "ship_id", *input.ShipID, "error", err)
 			return sqlc.AutonomyPolicy{}, err
 		}
 	}
 	conditions, err := objectJSON(input.Conditions)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to parse autonomy policy conditions", "principal", p, "input", input, "error", err)
 		return sqlc.AutonomyPolicy{}, err
 	}
 	if strings.TrimSpace(input.ChangeType) == "" || !autonomyLevels[input.Level] {
+		s.logger.ErrorContext(ctx, "invalid autonomy policy input", "principal", p, "input", input, "error", err)
 		return sqlc.AutonomyPolicy{}, validation("Change type and a recognised autonomy level are required.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate autonomy policy ID", "principal", p, "input", input, "error", err)
 		return sqlc.AutonomyPolicy{}, apperrors.Internal(err)
 	}
-	return s.repo.createAutonomy(ctx, sqlc.CreateAutonomyPolicyParams{
+	autonomyPolicy, err := s.repo.createAutonomy(ctx, sqlc.CreateAutonomyPolicyParams{
 		ID: id, TenantID: p.TenantID, ShipID: optionalUUID(input.ShipID), ChangeType: strings.TrimSpace(input.ChangeType),
 		Level: input.Level, Conditions: conditions,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create autonomy policy", "principal", p, "input", input, "error", err)
+		return sqlc.AutonomyPolicy{}, apperrors.Internal(err)
+	}
+	return autonomyPolicy, nil
 }
 
 func (s *service) GetAutonomy(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.AutonomyPolicy, error) {
@@ -784,10 +902,12 @@ func (s *service) ListAutonomy(ctx context.Context, p auth.Principal, shipID *uu
 func (s *service) UpdateAutonomy(ctx context.Context, p auth.Principal, id uuid.UUID, input AutonomyUpdate) (sqlc.AutonomyPolicy, error) {
 	current, err := s.GetAutonomy(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to get autonomy policy", "principal", p, "autonomy_id", id, "error", err)
 		return sqlc.AutonomyPolicy{}, err
 	}
 	if input.ShipID != nil {
 		if err := s.requireShip(ctx, p, *input.ShipID); err != nil {
+			s.logger.ErrorContext(ctx, "ship access denied", "principal", p, "autonomy_id", id, "ship_id", *input.ShipID, "error", err)
 			return sqlc.AutonomyPolicy{}, err
 		}
 		current.ShipID = optionalUUID(input.ShipID)
@@ -797,6 +917,7 @@ func (s *service) UpdateAutonomy(ctx context.Context, p auth.Principal, id uuid.
 	}
 	if input.Level != nil {
 		if !autonomyLevels[*input.Level] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized autonomy level", "principal", p, "autonomy_id", id, "input", input)
 			return sqlc.AutonomyPolicy{}, validation("Autonomy level is not recognised.")
 		}
 		current.Level = *input.Level
@@ -804,20 +925,28 @@ func (s *service) UpdateAutonomy(ctx context.Context, p auth.Principal, id uuid.
 	if input.Conditions != nil {
 		conditions, err := objectJSON(input.Conditions)
 		if err != nil {
+			s.logger.ErrorContext(ctx, "failed to parse autonomy policy conditions", "principal", p, "autonomy_id", id, "input", input, "error", err)
 			return sqlc.AutonomyPolicy{}, err
 		}
 		current.Conditions = conditions
 	}
 	if current.ChangeType == "" {
+		s.logger.ErrorContext(ctx, "validation failed: change type is required", "principal", p, "autonomy_id", id, "input", input)
 		return sqlc.AutonomyPolicy{}, validation("Change type is required.")
 	}
-	return s.repo.updateAutonomy(ctx, sqlc.UpdateAutonomyPolicyParams{
+	autonomyPolicy, err := s.repo.updateAutonomy(ctx, sqlc.UpdateAutonomyPolicyParams{
 		ID: id, ShipID: current.ShipID, ChangeType: current.ChangeType, Level: current.Level, Conditions: current.Conditions,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update autonomy policy", "principal", p, "autonomy_id", id, "input", input, "error", err)
+		return sqlc.AutonomyPolicy{}, apperrors.Internal(err)
+	}
+	return autonomyPolicy, nil
 }
 
 func (s *service) DeleteAutonomy(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetAutonomy(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "failed to get autonomy policy", "principal", p, "autonomy_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteAutonomy(ctx, id)

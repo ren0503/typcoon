@@ -2,6 +2,7 @@ package ship
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -30,17 +31,19 @@ var (
 )
 
 type service struct {
-	repo *repo
+	repo   *repo
+	logger *slog.Logger
 }
 
 // New builds the ship service.
-func New(pool *pgxpool.Pool) Service {
-	return &service{repo: newRepo(pool)}
+func New(pool *pgxpool.Pool, logger *slog.Logger) Service {
+	return &service{repo: newRepo(pool), logger: logger.With("component", "ship_service")}
 }
 
 func (s *service) CreateShip(ctx context.Context, p auth.Principal, input ShipInput) (sqlc.Ship, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
+		s.logger.ErrorContext(ctx, "validation failed: ship name is required", "principal", p, "input", input)
 		return sqlc.Ship{}, validation("Ship name is required.")
 	}
 	timezone := strings.TrimSpace(input.Timezone)
@@ -48,20 +51,28 @@ func (s *service) CreateShip(ctx context.Context, p auth.Principal, input ShipIn
 		timezone = "UTC"
 	}
 	if err := validateTimezone(timezone); err != nil {
+		s.logger.ErrorContext(ctx, "validation failed: invalid timezone", "principal", p, "input", input, "error", err)
 		return sqlc.Ship{}, err
 	}
 	tenantID := p.TenantID
 	if tenantID == uuid.Nil {
+		s.logger.ErrorContext(ctx, "validation failed: tenant is required", "principal", p, "input", input)
 		return sqlc.Ship{}, apperrors.Validation(apperrors.CodeValidationFailed, "A tenant is required to create a ship.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate UUID for new ship", "principal", p, "input", input, "error", err)
 		return sqlc.Ship{}, apperrors.Internal(err)
 	}
-	return s.repo.createShip(ctx, sqlc.CreateShipParams{
+	ship, err := s.repo.createShip(ctx, sqlc.CreateShipParams{
 		ID: id, TenantID: tenantID, Name: name,
 		ImoNumber: trimPtr(input.ImoNumber), FlagState: trimPtr(input.FlagState), Timezone: timezone,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create ship", "principal", p, "input", input, "error", err)
+		return sqlc.Ship{}, apperrors.Internal(err)
+	}
+	return ship, nil
 }
 
 func (s *service) GetShip(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.Ship, error) {
@@ -95,17 +106,20 @@ func (s *service) ListShips(ctx context.Context, p auth.Principal, rawCursor str
 func (s *service) UpdateShip(ctx context.Context, p auth.Principal, id uuid.UUID, input ShipUpdate) (sqlc.Ship, error) {
 	current, err := s.getShipScoped(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "ship not found or access denied", "principal", p, "ship_id", id, "error", err)
 		return sqlc.Ship{}, err
 	}
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
 		if name == "" {
+			s.logger.ErrorContext(ctx, "validation failed: ship name is required", "principal", p, "input", input)
 			return sqlc.Ship{}, validation("Ship name must not be empty.")
 		}
 		current.Name = name
 	}
 	if input.Timezone != nil {
 		if err := validateTimezone(*input.Timezone); err != nil {
+			s.logger.ErrorContext(ctx, "validation failed: invalid timezone", "principal", p, "input", input, "error", err)
 			return sqlc.Ship{}, err
 		}
 		current.Timezone = strings.TrimSpace(*input.Timezone)
@@ -118,18 +132,25 @@ func (s *service) UpdateShip(ctx context.Context, p auth.Principal, id uuid.UUID
 	}
 	if input.Status != nil {
 		if !shipStatuses[*input.Status] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized ship status", "principal", p, "input", input)
 			return sqlc.Ship{}, validation("Ship status is not recognised.")
 		}
 		current.Status = *input.Status
 	}
-	return s.repo.updateShip(ctx, sqlc.UpdateShipParams{
+	ship, err := s.repo.updateShip(ctx, sqlc.UpdateShipParams{
 		ID: current.ID, Name: current.Name, ImoNumber: current.ImoNumber,
 		FlagState: current.FlagState, Timezone: current.Timezone, Status: current.Status,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update ship", "principal", p, "input", input, "error", err)
+		return sqlc.Ship{}, apperrors.Internal(err)
+	}
+	return ship, nil
 }
 
 func (s *service) DeleteShip(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.getShipScoped(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "ship not found or access denied", "principal", p, "ship_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteShip(ctx, id)
@@ -137,17 +158,25 @@ func (s *service) DeleteShip(ctx context.Context, p auth.Principal, id uuid.UUID
 
 func (s *service) CreateDeck(ctx context.Context, p auth.Principal, shipID uuid.UUID, input DeckInput) (sqlc.Deck, error) {
 	if _, err := s.getShipScoped(ctx, p, shipID); err != nil {
+		s.logger.ErrorContext(ctx, "ship not found or access denied", "principal", p, "ship_id", shipID, "error", err)
 		return sqlc.Deck{}, err
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" || input.Level < 0 {
+		s.logger.ErrorContext(ctx, "validation failed: deck name is required and level must not be negative", "principal", p, "input", input)
 		return sqlc.Deck{}, validation("Deck name is required and level must not be negative.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate UUID for new deck", "principal", p, "input", input, "error", err)
 		return sqlc.Deck{}, apperrors.Internal(err)
 	}
-	return s.repo.createDeck(ctx, sqlc.CreateDeckParams{ID: id, ShipID: shipID, Level: input.Level, Name: name})
+	deck, err := s.repo.createDeck(ctx, sqlc.CreateDeckParams{ID: id, ShipID: shipID, Level: input.Level, Name: name})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create deck", "principal", p, "input", input, "error", err)
+		return sqlc.Deck{}, apperrors.Internal(err)
+	}
+	return deck, nil
 }
 
 func (s *service) GetDeck(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.Deck, error) {
@@ -185,25 +214,34 @@ func (s *service) ListDecks(ctx context.Context, p auth.Principal, shipID uuid.U
 func (s *service) UpdateDeck(ctx context.Context, p auth.Principal, id uuid.UUID, input DeckUpdate) (sqlc.Deck, error) {
 	current, err := s.GetDeck(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "deck not found or access denied", "principal", p, "deck_id", id, "error", err)
 		return sqlc.Deck{}, err
 	}
 	if input.Level != nil {
 		if *input.Level < 0 {
+			s.logger.ErrorContext(ctx, "validation failed: deck level must not be negative", "principal", p, "input", input)
 			return sqlc.Deck{}, validation("Deck level must not be negative.")
 		}
 		current.Level = *input.Level
 	}
 	if input.Name != nil {
 		if strings.TrimSpace(*input.Name) == "" {
+			s.logger.ErrorContext(ctx, "validation failed: deck name must not be empty", "principal", p, "input", input)
 			return sqlc.Deck{}, validation("Deck name must not be empty.")
 		}
 		current.Name = strings.TrimSpace(*input.Name)
 	}
-	return s.repo.updateDeck(ctx, sqlc.UpdateDeckParams{ID: id, Level: current.Level, Name: current.Name})
+	deck, err := s.repo.updateDeck(ctx, sqlc.UpdateDeckParams{ID: id, Level: current.Level, Name: current.Name})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update deck", "principal", p, "input", input, "error", err)
+		return sqlc.Deck{}, apperrors.Internal(err)
+	}
+	return deck, nil
 }
 
 func (s *service) DeleteDeck(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetDeck(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "deck not found or access denied", "principal", p, "deck_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteDeck(ctx, id)
@@ -211,26 +249,36 @@ func (s *service) DeleteDeck(ctx context.Context, p auth.Principal, id uuid.UUID
 
 func (s *service) CreateArea(ctx context.Context, p auth.Principal, shipID uuid.UUID, input AreaInput) (sqlc.Area, error) {
 	if _, err := s.getShipScoped(ctx, p, shipID); err != nil {
+		s.logger.ErrorContext(ctx, "ship not found or access denied", "principal", p, "ship_id", shipID, "error", err)
 		return sqlc.Area{}, err
 	}
 	if err := s.requireDeck(ctx, shipID, input.DeckID); err != nil {
+		s.logger.ErrorContext(ctx, "deck not found or access denied", "principal", p, "deck_id", input.DeckID, "error", err)
 		return sqlc.Area{}, err
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" || !areaTypes[input.AreaType] {
+		s.logger.ErrorContext(ctx, "validation failed: area name and type are required", "principal", p, "input", input)
 		return sqlc.Area{}, validation("Area name and a recognised area type are required.")
 	}
 	if input.Capacity != nil && *input.Capacity < 0 {
+		s.logger.ErrorContext(ctx, "validation failed: area capacity must not be negative", "principal", p, "input", input)
 		return sqlc.Area{}, validation("Area capacity must not be negative.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate UUID for new area", "principal", p, "input", input, "error", err)
 		return sqlc.Area{}, apperrors.Internal(err)
 	}
-	return s.repo.createArea(ctx, sqlc.CreateAreaParams{
+	area, err := s.repo.createArea(ctx, sqlc.CreateAreaParams{
 		ID: id, ShipID: shipID, DeckID: input.DeckID, Name: name,
 		AreaType: input.AreaType, Capacity: input.Capacity, Layout: input.Layout,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create area", "principal", p, "input", input, "error", err)
+		return sqlc.Area{}, apperrors.Internal(err)
+	}
+	return area, nil
 }
 
 func (s *service) GetArea(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.Area, error) {
@@ -268,16 +316,19 @@ func (s *service) ListAreas(ctx context.Context, p auth.Principal, shipID uuid.U
 func (s *service) UpdateArea(ctx context.Context, p auth.Principal, id uuid.UUID, input AreaUpdate) (sqlc.Area, error) {
 	current, err := s.GetArea(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "area not found or access denied", "principal", p, "area_id", id, "error", err)
 		return sqlc.Area{}, err
 	}
 	if input.Name != nil {
 		if strings.TrimSpace(*input.Name) == "" {
+			s.logger.ErrorContext(ctx, "validation failed: area name must not be empty", "principal", p, "input", input)
 			return sqlc.Area{}, validation("Area name must not be empty.")
 		}
 		current.Name = strings.TrimSpace(*input.Name)
 	}
 	if input.Capacity != nil {
 		if *input.Capacity < 0 {
+			s.logger.ErrorContext(ctx, "validation failed: area capacity must not be negative", "principal", p, "input", input)
 			return sqlc.Area{}, validation("Area capacity must not be negative.")
 		}
 		current.Capacity = input.Capacity
@@ -285,14 +336,20 @@ func (s *service) UpdateArea(ctx context.Context, p auth.Principal, id uuid.UUID
 	if input.Layout != nil {
 		current.Layout = input.Layout
 	}
-	return s.repo.updateArea(ctx, sqlc.UpdateAreaParams{
+	area, err := s.repo.updateArea(ctx, sqlc.UpdateAreaParams{
 		ID: id, DeckID: current.DeckID, Name: current.Name, AreaType: current.AreaType,
 		Capacity: current.Capacity, Layout: current.Layout,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update area", "principal", p, "input", input, "error", err)
+		return sqlc.Area{}, apperrors.Internal(err)
+	}
+	return area, nil
 }
 
 func (s *service) DeleteArea(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetArea(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "area not found or access denied", "principal", p, "area_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteArea(ctx, id)
@@ -300,23 +357,32 @@ func (s *service) DeleteArea(ctx context.Context, p auth.Principal, id uuid.UUID
 
 func (s *service) CreateRoom(ctx context.Context, p auth.Principal, shipID uuid.UUID, input RoomInput) (sqlc.Room, error) {
 	if _, err := s.getShipScoped(ctx, p, shipID); err != nil {
+		s.logger.ErrorContext(ctx, "ship not found or access denied", "principal", p, "ship_id", shipID, "error", err)
 		return sqlc.Room{}, err
 	}
 	if err := s.requireDeck(ctx, shipID, input.DeckID); err != nil {
+		s.logger.ErrorContext(ctx, "deck not found or access denied", "principal", p, "deck_id", input.DeckID, "error", err)
 		return sqlc.Room{}, err
 	}
 	number := strings.TrimSpace(input.Number)
 	if number == "" || !roomTypes[input.RoomType] || input.Capacity <= 0 {
+		s.logger.ErrorContext(ctx, "validation failed: room number, type, and positive capacity are required", "principal", p, "input", input)
 		return sqlc.Room{}, validation("Room number, a recognised room type, and positive capacity are required.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to generate UUID for new room", "principal", p, "input", input, "error", err)
 		return sqlc.Room{}, apperrors.Internal(err)
 	}
-	return s.repo.createRoom(ctx, sqlc.CreateRoomParams{
+	room, err := s.repo.createRoom(ctx, sqlc.CreateRoomParams{
 		ID: id, ShipID: shipID, DeckID: input.DeckID, Number: number, RoomType: input.RoomType,
 		Capacity: input.Capacity, IsBookable: input.IsBookable, Layout: input.Layout,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create room", "principal", p, "input", input, "error", err)
+		return sqlc.Room{}, apperrors.Internal(err)
+	}
+	return room, nil
 }
 
 func (s *service) GetRoom(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.Room, error) {
@@ -354,28 +420,33 @@ func (s *service) ListRooms(ctx context.Context, p auth.Principal, shipID uuid.U
 func (s *service) UpdateRoom(ctx context.Context, p auth.Principal, id uuid.UUID, input RoomUpdate) (sqlc.Room, error) {
 	current, err := s.GetRoom(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "room not found or access denied", "principal", p, "room_id", id, "error", err)
 		return sqlc.Room{}, err
 	}
 	if input.DeckID != nil {
 		if err := s.requireDeck(ctx, current.ShipID, *input.DeckID); err != nil {
+			s.logger.ErrorContext(ctx, "validation failed: deck not found or access denied", "principal", p, "deck_id", *input.DeckID, "error", err)
 			return sqlc.Room{}, err
 		}
 		current.DeckID = *input.DeckID
 	}
 	if input.Number != nil {
 		if strings.TrimSpace(*input.Number) == "" {
+			s.logger.ErrorContext(ctx, "validation failed: room number must not be empty", "principal", p, "input", input)
 			return sqlc.Room{}, validation("Room number must not be empty.")
 		}
 		current.Number = strings.TrimSpace(*input.Number)
 	}
 	if input.RoomType != nil {
 		if !roomTypes[*input.RoomType] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized room type", "principal", p, "input", input)
 			return sqlc.Room{}, validation("Room type is not recognised.")
 		}
 		current.RoomType = *input.RoomType
 	}
 	if input.Capacity != nil {
 		if *input.Capacity <= 0 {
+			s.logger.ErrorContext(ctx, "validation failed: room capacity must be positive", "principal", p, "input", input)
 			return sqlc.Room{}, validation("Room capacity must be positive.")
 		}
 		current.Capacity = *input.Capacity
@@ -386,14 +457,20 @@ func (s *service) UpdateRoom(ctx context.Context, p auth.Principal, id uuid.UUID
 	if input.Layout != nil {
 		current.Layout = input.Layout
 	}
-	return s.repo.updateRoom(ctx, sqlc.UpdateRoomParams{
+	room, err := s.repo.updateRoom(ctx, sqlc.UpdateRoomParams{
 		ID: id, DeckID: current.DeckID, Number: current.Number, RoomType: current.RoomType,
 		Capacity: current.Capacity, IsBookable: current.IsBookable, Layout: current.Layout,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update room", "principal", p, "input", input, "error", err)
+		return sqlc.Room{}, apperrors.Internal(err)
+	}
+	return room, nil
 }
 
 func (s *service) DeleteRoom(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetRoom(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "room not found or access denied", "principal", p, "room_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteRoom(ctx, id)

@@ -2,6 +2,7 @@ package voyage
 
 import (
 	"context"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -24,13 +25,14 @@ var portCallStatuses = map[string]bool{
 }
 
 type service struct {
-	repo  *repo
-	ships ship.Service
+	repo   *repo
+	logger *slog.Logger
+	ships  ship.Service
 }
 
 // New builds the voyage service.
-func New(pool *pgxpool.Pool, ships ship.Service) Service {
-	return &service{repo: newRepo(pool), ships: ships}
+func New(pool *pgxpool.Pool, logger *slog.Logger, ships ship.Service) Service {
+	return &service{repo: newRepo(pool), logger: logger.With("module", "voyage"), ships: ships}
 }
 
 func (s *service) CreatePort(ctx context.Context, _ auth.Principal, input PortInput) (sqlc.Port, error) {
@@ -38,6 +40,7 @@ func (s *service) CreatePort(ctx context.Context, _ auth.Principal, input PortIn
 	name := strings.TrimSpace(input.Name)
 	country := strings.ToUpper(strings.TrimSpace(input.CountryCode))
 	if locode == "" || name == "" || len(country) != 2 {
+		s.logger.ErrorContext(ctx, "validation failed: port code, name, and country code are required", "input", input)
 		return sqlc.Port{}, validation("Port code, name, and a two-letter country code are required.")
 	}
 	timezone := strings.TrimSpace(input.Timezone)
@@ -45,10 +48,12 @@ func (s *service) CreatePort(ctx context.Context, _ auth.Principal, input PortIn
 		timezone = "UTC"
 	}
 	if _, err := time.LoadLocation(timezone); err != nil {
+		s.logger.ErrorContext(ctx, "validation failed: invalid time zone", "input", input, "error", err)
 		return sqlc.Port{}, validation("Port time zone must be a valid IANA time zone.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create port", "input", input, "error", err)
 		return sqlc.Port{}, apperrors.Internal(err)
 	}
 	return s.repo.createPort(ctx, sqlc.CreatePortParams{
@@ -82,16 +87,19 @@ func (s *service) ListPorts(ctx context.Context, _ auth.Principal, rawCursor str
 func (s *service) UpdatePort(ctx context.Context, p auth.Principal, id uuid.UUID, input PortUpdate) (sqlc.Port, error) {
 	current, err := s.GetPort(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "port not found or access denied", "principal", p, "port_id", id, "error", err)
 		return sqlc.Port{}, err
 	}
 	if input.Name != nil {
 		if strings.TrimSpace(*input.Name) == "" {
+			s.logger.ErrorContext(ctx, "validation failed: port name must not be empty", "principal", p, "input", input)
 			return sqlc.Port{}, validation("Port name must not be empty.")
 		}
 		current.Name = strings.TrimSpace(*input.Name)
 	}
 	if input.Timezone != nil {
 		if _, err := time.LoadLocation(*input.Timezone); err != nil {
+			s.logger.ErrorContext(ctx, "validation failed: invalid time zone", "principal", p, "input", input, "error", err)
 			return sqlc.Port{}, validation("Port time zone must be a valid IANA time zone.")
 		}
 		current.Timezone = strings.TrimSpace(*input.Timezone)
@@ -102,13 +110,19 @@ func (s *service) UpdatePort(ctx context.Context, p auth.Principal, id uuid.UUID
 	if input.Longitude != nil {
 		current.Longitude = decimalFromPtr(input.Longitude)
 	}
-	return s.repo.updatePort(ctx, sqlc.UpdatePortParams{
+	port, err := s.repo.updatePort(ctx, sqlc.UpdatePortParams{
 		ID: id, Name: current.Name, Latitude: current.Latitude, Longitude: current.Longitude, Timezone: current.Timezone,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update port", "principal", p, "input", input, "error", err)
+		return sqlc.Port{}, apperrors.Internal(err)
+	}
+	return port, nil
 }
 
 func (s *service) DeletePort(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetPort(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "port not found or access denied", "principal", p, "port_id", id, "error", err)
 		return err
 	}
 	return s.repo.deletePort(ctx, id)
@@ -116,23 +130,32 @@ func (s *service) DeletePort(ctx context.Context, p auth.Principal, id uuid.UUID
 
 func (s *service) CreateVoyage(ctx context.Context, p auth.Principal, input VoyageInput) (sqlc.Voyage, error) {
 	if err := s.requireShip(ctx, p, input.ShipID); err != nil {
+		s.logger.ErrorContext(ctx, "validation failed: ship not found or access denied", "principal", p, "ship_id", input.ShipID, "error", err)
 		return sqlc.Voyage{}, err
 	}
 	code := strings.TrimSpace(input.Code)
 	if code == "" {
+		s.logger.ErrorContext(ctx, "validation failed: voyage code is required", "principal", p, "input", input)
 		return sqlc.Voyage{}, validation("Voyage code is required.")
 	}
 	if !input.ArrivalAt.After(input.DepartureAt) {
+		s.logger.ErrorContext(ctx, "validation failed: voyage arrival must be after departure", "principal", p, "input", input)
 		return sqlc.Voyage{}, validation("Voyage arrival must be after departure.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create voyage", "principal", p, "input", input, "error", err)
 		return sqlc.Voyage{}, apperrors.Internal(err)
 	}
-	return s.repo.createVoyage(ctx, sqlc.CreateVoyageParams{
+	voyage, err := s.repo.createVoyage(ctx, sqlc.CreateVoyageParams{
 		ID: id, ShipID: input.ShipID, Code: code, DepartureAt: input.DepartureAt, ArrivalAt: input.ArrivalAt,
 		BoardingOpensAt: input.BoardingOpensAt, ManifestFrozenAt: input.ManifestFrozenAt,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create voyage", "principal", p, "input", input, "error", err)
+		return sqlc.Voyage{}, apperrors.Internal(err)
+	}
+	return voyage, nil
 }
 
 func (s *service) GetVoyage(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.Voyage, error) {
@@ -208,10 +231,12 @@ func (s *service) ListVoyages(ctx context.Context, p auth.Principal, shipID *uui
 func (s *service) UpdateVoyage(ctx context.Context, p auth.Principal, id uuid.UUID, input VoyageUpdate) (sqlc.Voyage, error) {
 	current, err := s.GetVoyage(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "voyage not found or access denied", "principal", p, "voyage_id", id, "error", err)
 		return sqlc.Voyage{}, err
 	}
 	if input.Code != nil {
 		if strings.TrimSpace(*input.Code) == "" {
+			s.logger.ErrorContext(ctx, "validate failed: voyage code is required", "principal", p, "input", input)
 			return sqlc.Voyage{}, validation("Voyage code must not be empty.")
 		}
 		current.Code = strings.TrimSpace(*input.Code)
@@ -229,16 +254,23 @@ func (s *service) UpdateVoyage(ctx context.Context, p auth.Principal, id uuid.UU
 		current.ManifestFrozenAt = input.ManifestFrozenAt
 	}
 	if !current.ArrivalAt.After(current.DepartureAt) {
+		s.logger.ErrorContext(ctx, "validation failed: voyage arrival must be after departure", "principal", p, "input", input)
 		return sqlc.Voyage{}, validation("Voyage arrival must be after departure.")
 	}
-	return s.repo.updateVoyage(ctx, sqlc.UpdateVoyageParams{
+	voyage, err := s.repo.updateVoyage(ctx, sqlc.UpdateVoyageParams{
 		ID: id, Code: current.Code, DepartureAt: current.DepartureAt, ArrivalAt: current.ArrivalAt,
 		BoardingOpensAt: current.BoardingOpensAt, ManifestFrozenAt: current.ManifestFrozenAt,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update voyage", "principal", p, "input", input, "error", err)
+		return sqlc.Voyage{}, apperrors.Internal(err)
+	}
+	return voyage, nil
 }
 
 func (s *service) DeleteVoyage(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetVoyage(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "voyage not found or access denied", "principal", p, "voyage_id", id, "error", err)
 		return err
 	}
 	return s.repo.deleteVoyage(ctx, id)
@@ -247,27 +279,36 @@ func (s *service) DeleteVoyage(ctx context.Context, p auth.Principal, id uuid.UU
 func (s *service) CreatePortCall(ctx context.Context, p auth.Principal, voyageID uuid.UUID, input PortCallInput) (sqlc.PortCall, error) {
 	v, err := s.GetVoyage(ctx, p, voyageID)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "voyage not found or access denied", "principal", p, "voyage_id", voyageID, "error", err)
 		return sqlc.PortCall{}, err
 	}
 	ok, err := s.repo.portExists(ctx, input.PortID)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "error checking port existence", "principal", p, "port_id", input.PortID, "error", err)
 		return sqlc.PortCall{}, err
 	}
 	if !ok {
+		s.logger.ErrorContext(ctx, "validation failed: port does not exist", "principal", p, "port_id", input.PortID)
 		return sqlc.PortCall{}, apperrors.Validation(apperrors.CodeInvalidReference, "Port does not exist.")
 	}
 	if input.Sequence < 1 {
+		s.logger.ErrorContext(ctx, "validation failed: port call sequence must be at least 1", "principal", p, "input", input)
 		return sqlc.PortCall{}, validation("Port call sequence must be at least 1.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return sqlc.PortCall{}, apperrors.Internal(err)
 	}
-	return s.repo.createPortCall(ctx, sqlc.CreatePortCallParams{
+	portCall, err := s.repo.createPortCall(ctx, sqlc.CreatePortCallParams{
 		ID: id, ShipID: v.ShipID, VoyageID: voyageID, PortID: input.PortID, Sequence: input.Sequence,
 		Eta: input.Eta, Etd: input.Etd, AllowsEmbark: input.AllowsEmbark, AllowsDisembark: input.AllowsDisembark,
 		Status: "scheduled",
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to create port call", "principal", p, "input", input, "error", err)
+		return sqlc.PortCall{}, apperrors.Internal(err)
+	}
+	return portCall, nil
 }
 
 func (s *service) GetPortCall(ctx context.Context, p auth.Principal, id uuid.UUID) (sqlc.PortCall, error) {
@@ -318,6 +359,7 @@ func (s *service) ListPortCalls(ctx context.Context, p auth.Principal, voyageID 
 func (s *service) UpdatePortCall(ctx context.Context, p auth.Principal, id uuid.UUID, input PortCallUpdate) (sqlc.PortCall, error) {
 	current, err := s.GetPortCall(ctx, p, id)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "port call not found or access denied", "principal", p, "port_call_id", id, "error", err)
 		return sqlc.PortCall{}, err
 	}
 	if input.Eta != nil {
@@ -340,18 +382,25 @@ func (s *service) UpdatePortCall(ctx context.Context, p auth.Principal, id uuid.
 	}
 	if input.Status != nil {
 		if !portCallStatuses[*input.Status] {
+			s.logger.ErrorContext(ctx, "validation failed: unrecognized port call status", "principal", p, "input", input)
 			return sqlc.PortCall{}, validation("Port call status is not recognised.")
 		}
 		current.Status = *input.Status
 	}
-	return s.repo.updatePortCall(ctx, sqlc.UpdatePortCallParams{
+	portCall, err := s.repo.updatePortCall(ctx, sqlc.UpdatePortCallParams{
 		ID: id, Sequence: current.Sequence, Eta: current.Eta, Etd: current.Etd, Ata: current.Ata, Atd: current.Atd,
 		AllowsEmbark: current.AllowsEmbark, AllowsDisembark: current.AllowsDisembark, Status: current.Status,
 	})
+	if err != nil {
+		s.logger.ErrorContext(ctx, "failed to update port call", "principal", p, "input", input, "error", err)
+		return sqlc.PortCall{}, apperrors.Internal(err)
+	}
+	return portCall, nil
 }
 
 func (s *service) DeletePortCall(ctx context.Context, p auth.Principal, id uuid.UUID) error {
 	if _, err := s.GetPortCall(ctx, p, id); err != nil {
+		s.logger.ErrorContext(ctx, "port call not found or access denied", "principal", p, "port_call_id", id, "error", err)
 		return err
 	}
 	return s.repo.deletePortCall(ctx, id)

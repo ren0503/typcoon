@@ -1,6 +1,8 @@
 package app
 
 import (
+	"log/slog"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -34,11 +36,11 @@ type Modules struct {
 }
 
 // BuildModules constructs the acyclic module graph described in data-model.md.
-func BuildModules(pool *pgxpool.Pool) Modules {
-	auditStore := audit.NewStore(pool)
-	shipSvc := ship.New(pool)
-	voyageSvc := voyage.New(pool, shipSvc)
-	staffSvc := staff.New(pool, shipSvc, auditStore)
+func BuildModules(pool *pgxpool.Pool, logger *slog.Logger) Modules {
+	auditStore := audit.NewStore(pool, logger)
+	shipSvc := ship.New(pool, logger)
+	voyageSvc := voyage.New(pool, logger, shipSvc)
+	staffSvc := staff.New(pool, logger, shipSvc, auditStore)
 	partnerSvc := partner.New(pool, shipSvc)
 	accountSvc := auth.NewAccountService(pool)
 	bookingSvc := booking.New(pool, shipSvc, voyageSvc, partnerSvc, accountSvc, auditStore)

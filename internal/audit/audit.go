@@ -3,6 +3,7 @@ package audit
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,17 +61,19 @@ type Record struct {
 
 // Store persists audit records in the audit_log table.
 type Store struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	logger *slog.Logger
 }
 
 // NewStore creates an audit store backed by the given pool.
-func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool}
+func NewStore(pool *pgxpool.Pool, logger *slog.Logger) *Store {
+	return &Store{pool: pool, logger: logger.With("component", "audit_store")}
 }
 
 // AppendTx validates and inserts an audit entry using the caller's transaction.
 func (s *Store) AppendTx(ctx context.Context, tx Execer, entry Entry) error {
 	if err := entry.validate(); err != nil {
+		s.logger.ErrorContext(ctx, "error validating audit entry", "error", err, "entry", entry)
 		return err
 	}
 	occurredAt := entry.OccurredAt
@@ -89,6 +92,7 @@ func (s *Store) AppendTx(ctx context.Context, tx Execer, entry Entry) error {
 		entry.Entity, entry.EntityID, entry.ShipID, entry.VoyageID, details,
 	)
 	if err != nil {
+		s.logger.ErrorContext(ctx, "error inserting audit entry", "error", err, "entry", entry)
 		return apperrors.Internal(err)
 	}
 	return nil

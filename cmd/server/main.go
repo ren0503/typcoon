@@ -52,7 +52,7 @@ func run() error {
 		return err
 	}
 
-	modules := app.BuildModules(db)
+	modules := app.BuildModules(db, logger)
 
 	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:             logger,
