@@ -6,6 +6,10 @@ RETURNING *;
 -- name: GetAdminUser :one
 SELECT * FROM admin_users WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: GetActiveAdminUserByAccountID :one
+SELECT * FROM admin_users
+WHERE account_id = $1 AND status = 'active' AND deleted_at IS NULL;
+
 -- name: ListAdminUsers :many
 SELECT * FROM admin_users
 WHERE tenant_id = sqlc.arg('tenant_id') AND deleted_at IS NULL
@@ -69,24 +73,40 @@ RETURNING *;
 -- name: GetAccountIdentity :one
 SELECT * FROM account_identities WHERE id = $1;
 
+-- name: GetAccountIdentityByProviderSubject :one
+SELECT * FROM account_identities WHERE provider = $1 AND provider_sub = $2;
+
 -- name: ListAccountIdentities :many
 SELECT * FROM account_identities WHERE account_id = $1 ORDER BY created_at;
+
+-- name: CountAccountIdentities :one
+SELECT count(*) FROM account_identities WHERE account_id = $1;
 
 -- name: UnlinkAccountIdentity :execrows
 DELETE FROM account_identities WHERE id = $1;
 
+-- name: DeleteAccountIdentityForAccount :execrows
+DELETE FROM account_identities WHERE id = $1 AND account_id = $2;
+
 -- name: CreateRefreshToken :one
-INSERT INTO refresh_tokens (id, subject_type, subject_id, family_id, token_hash, expires_at, user_agent)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO refresh_tokens (id, subject_type, subject_id, family_id, client, token_hash, expires_at, user_agent)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 RETURNING *;
 
 -- name: GetRefreshTokenByHash :one
 SELECT * FROM refresh_tokens WHERE token_hash = $1;
 
+-- name: GetRefreshTokenByHashForUpdate :one
+SELECT * FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE;
+
 -- name: MarkRefreshTokenUsed :one
 UPDATE refresh_tokens SET used_at = now(), replaced_by = sqlc.narg('replaced_by')
-WHERE id = sqlc.arg('id') AND used_at IS NULL
+WHERE id = sqlc.arg('id') AND used_at IS NULL AND revoked_at IS NULL
 RETURNING *;
 
 -- name: RevokeRefreshTokenFamily :execrows
 UPDATE refresh_tokens SET revoked_at = now() WHERE family_id = $1 AND revoked_at IS NULL;
+
+-- name: RevokeAccountRefreshTokens :execrows
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE subject_type = 'account' AND subject_id = $1 AND revoked_at IS NULL;

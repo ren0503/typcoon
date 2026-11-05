@@ -1,11 +1,14 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
+
+	"github.com/ren0503/tycoon/internal/database/sqlc"
 )
 
 // ErrUnauthenticated indicates that no valid principal could be resolved.
@@ -90,4 +93,73 @@ func parseDevEntry(entry string) (Principal, string, error) {
 		}
 	}
 	return principal, actorID, nil
+}
+
+type accountLookup interface {
+	GetAccount(ctx context.Context, id uuid.UUID) (sqlc.Account, error)
+	ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (AdminAuthority, error)
+}
+
+// AccessTokenProvider resolves principals from backend-issued access tokens.
+type AccessTokenProvider struct {
+	tokens   *AccessTokenIssuer
+	accounts accountLookup
+}
+
+// NewAccessTokenProvider builds the bearer access-token provider.
+func NewAccessTokenProvider(tokens *AccessTokenIssuer, accounts accountLookup) (*AccessTokenProvider, error) {
+	if tokens == nil {
+		return nil, errors.New("access token issuer is required")
+	}
+	if accounts == nil {
+		return nil, errors.New("account lookup is required")
+	}
+	return &AccessTokenProvider{tokens: tokens, accounts: accounts}, nil
+}
+
+// Authenticate validates the bearer token and resolves the active account.
+func (p *AccessTokenProvider) Authenticate(r *http.Request) (Principal, error) {
+	raw, ok := bearerToken(r)
+	if !ok {
+		return Principal{}, ErrUnauthenticated
+	}
+	claims, err := p.tokens.Validate(r.Context(), raw)
+	if err != nil {
+		return Principal{}, ErrUnauthenticated
+	}
+	accountID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return Principal{}, ErrUnauthenticated
+	}
+	account, err := p.accounts.GetAccount(r.Context(), accountID)
+	if err != nil || account.Status != "active" || account.DeletedAt != nil {
+		return Principal{}, ErrUnauthenticated
+	}
+	switch claims.Client {
+	case ClientGuestMobile:
+		return Principal{ActorType: ActorAccount, ActorID: account.ID.String(), AccountID: account.ID}, nil
+	case ClientFleetConsole:
+		authority, err := p.accounts.ResolveActiveAdmin(r.Context(), accountID)
+		if err != nil {
+			return Principal{}, ErrUnauthenticated
+		}
+		return Principal{
+			ActorType: ActorAdmin,
+			ActorID:   authority.AdminUserID.String(),
+			AccountID: accountID,
+			TenantID:  authority.TenantID,
+			Role:      authority.Role,
+			ShipIDs:   authority.ShipIDs,
+		}, nil
+	default:
+		return Principal{}, ErrUnauthenticated
+	}
+}
+
+func bearerToken(r *http.Request) (string, bool) {
+	parts := strings.Fields(r.Header.Get("Authorization"))
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" {
+		return "", false
+	}
+	return parts[1], true
 }

@@ -196,3 +196,9 @@ func RawCursor(r *http.Request) string {
 func Header(r *http.Request) string {
 	return r.Header.Get("Idempotency-Key")
 }
+
+// SetNoStore prevents token-bearing auth responses from being cached.
+func SetNoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Pragma", "no-cache")
+}

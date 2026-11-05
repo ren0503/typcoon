@@ -30,6 +30,7 @@ CREATE TABLE tenants (
 CREATE TABLE admin_users (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id     uuid NOT NULL REFERENCES tenants(id),
+  account_id    uuid,
   email         text NOT NULL,
   display_name  text NOT NULL,
   idp_subject   text,                         -- sub from the company's OIDC SSO (if any)
@@ -66,10 +67,15 @@ CREATE TABLE accounts (                         -- guest account (OAuth)
 );
 CREATE UNIQUE INDEX uq_accounts_email ON accounts (lower(email)) WHERE email IS NOT NULL AND deleted_at IS NULL;
 
+ALTER TABLE admin_users
+  ADD CONSTRAINT admin_users_account_id_fkey FOREIGN KEY (account_id) REFERENCES accounts(id);
+CREATE UNIQUE INDEX uq_admin_users_account ON admin_users (account_id)
+  WHERE account_id IS NOT NULL AND deleted_at IS NULL;
+
 CREATE TABLE account_identities (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   account_id    uuid NOT NULL REFERENCES accounts(id),
-  provider      text NOT NULL CHECK (provider IN ('google','apple','email_otp')),
+  provider      text NOT NULL CHECK (provider IN ('google','apple','email_otp','firebase')),
   provider_sub  text NOT NULL,
   email         text,
   created_at    timestamptz NOT NULL DEFAULT now(),
@@ -83,6 +89,7 @@ CREATE TABLE refresh_tokens (
   subject_type  text NOT NULL CHECK (subject_type IN ('account','admin')),
   subject_id    uuid NOT NULL,
   family_id     uuid NOT NULL,
+  client        text NOT NULL DEFAULT 'guest_mobile' CHECK (client IN ('guest_mobile','fleet_console')),
   token_hash    bytea NOT NULL UNIQUE,
   issued_at     timestamptz NOT NULL DEFAULT now(),
   expires_at    timestamptz NOT NULL,

@@ -58,6 +58,49 @@ type AWSConfig struct {
 type AuthConfig struct {
 	Mode          string   `env:"AUTH_MODE" validate:"required,oneof=dev jwt"`
 	DevPrincipals []string `env:"AUTH_DEV_PRINCIPALS"`
+	TrustedProxy  bool     `env:"AUTH_TRUST_PROXY"`
+	Firebase      FirebaseConfig
+	Token         TokenConfig     `validate:"required"`
+	Signing       SigningConfig   `validate:"required"`
+	RateLimit     RateLimitConfig `validate:"required"`
+}
+
+// FirebaseConfig holds Firebase Admin SDK identity and emulator settings.
+type FirebaseConfig struct {
+	ProjectID       string `env:"AUTH_FIREBASE_PROJECT_ID"`
+	CredentialsFile string `env:"AUTH_FIREBASE_CREDENTIALS_FILE"`
+	EmulatorHost    string `env:"FIREBASE_AUTH_EMULATOR_HOST"`
+}
+
+// TokenConfig holds backend-issued access and refresh token settings.
+type TokenConfig struct {
+	Issuer     string        `env:"AUTH_TOKEN_ISSUER" validate:"required"`
+	Audience   string        `env:"AUTH_TOKEN_AUDIENCE" validate:"required"`
+	AccessTTL  time.Duration `env:"AUTH_ACCESS_TTL" validate:"required,gt=0"`
+	RefreshTTL time.Duration `env:"AUTH_REFRESH_TTL" validate:"required,gt=0"`
+	ClockSkew  time.Duration `env:"AUTH_CLOCK_SKEW" validate:"gte=0"`
+}
+
+// SigningConfig selects asymmetric access-token signing material.
+type SigningConfig struct {
+	Mode         string            `env:"AUTH_SIGNING_MODE" validate:"required,oneof=local kms"`
+	ActiveKID    string            `env:"AUTH_SIGNING_ACTIVE_KID" validate:"required"`
+	KMSKeys      map[string]string `env:"AUTH_SIGNING_KMS_KEYS"`
+	LocalKeyFile string            `env:"AUTH_SIGNING_LOCAL_KEY_FILE"`
+	LocalKID     string            `env:"AUTH_SIGNING_LOCAL_KID" validate:"required"`
+}
+
+// RateLimitConfig controls shared authentication abuse limits.
+type RateLimitConfig struct {
+	Backend                string `env:"AUTH_RATE_LIMIT_BACKEND" validate:"required,oneof=memory redis"`
+	RedisURL               string `env:"AUTH_RATE_LIMIT_REDIS_URL"`
+	RedisPrefix            string `env:"AUTH_RATE_LIMIT_REDIS_PREFIX"`
+	ExchangeIPPerMin       int    `env:"AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN" validate:"required,gt=0"`
+	ExchangeIdentityPerMin int    `env:"AUTH_RATE_LIMIT_EXCHANGE_IDENTITY_PER_MIN" validate:"required,gt=0"`
+	RefreshIPPerMin        int    `env:"AUTH_RATE_LIMIT_REFRESH_IP_PER_MIN" validate:"required,gt=0"`
+	RefreshSessionPerMin   int    `env:"AUTH_RATE_LIMIT_REFRESH_SESSION_PER_MIN" validate:"required,gt=0"`
+	LinkAccountPerMin      int    `env:"AUTH_RATE_LIMIT_LINK_ACCOUNT_PER_MIN" validate:"required,gt=0"`
+	LogoutAllAccountPerMin int    `env:"AUTH_RATE_LIMIT_LOGOUT_ALL_ACCOUNT_PER_MIN" validate:"required,gt=0"`
 }
 
 // CORSConfig holds the cross-origin allowlist.
@@ -109,6 +152,29 @@ func Load() (*Config, error) {
 	bind("cors_allowed_origins", "CORS_ALLOWED_ORIGINS")
 	bind("auth_mode", "AUTH_MODE")
 	bind("auth_dev_principals", "AUTH_DEV_PRINCIPALS")
+	bind("auth_trust_proxy", "AUTH_TRUST_PROXY")
+	bind("auth_firebase_project_id", "AUTH_FIREBASE_PROJECT_ID")
+	bind("auth_firebase_credentials_file", "AUTH_FIREBASE_CREDENTIALS_FILE")
+	bind("firebase_auth_emulator_host", "FIREBASE_AUTH_EMULATOR_HOST")
+	bind("auth_token_issuer", "AUTH_TOKEN_ISSUER")
+	bind("auth_token_audience", "AUTH_TOKEN_AUDIENCE")
+	bind("auth_access_ttl", "AUTH_ACCESS_TTL")
+	bind("auth_refresh_ttl", "AUTH_REFRESH_TTL")
+	bind("auth_clock_skew", "AUTH_CLOCK_SKEW")
+	bind("auth_signing_mode", "AUTH_SIGNING_MODE")
+	bind("auth_signing_active_kid", "AUTH_SIGNING_ACTIVE_KID")
+	bind("auth_signing_kms_keys", "AUTH_SIGNING_KMS_KEYS")
+	bind("auth_signing_local_key_file", "AUTH_SIGNING_LOCAL_KEY_FILE")
+	bind("auth_signing_local_kid", "AUTH_SIGNING_LOCAL_KID")
+	bind("auth_rate_limit_backend", "AUTH_RATE_LIMIT_BACKEND")
+	bind("auth_rate_limit_redis_url", "AUTH_RATE_LIMIT_REDIS_URL")
+	bind("auth_rate_limit_redis_prefix", "AUTH_RATE_LIMIT_REDIS_PREFIX")
+	bind("auth_rate_limit_exchange_ip_per_min", "AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN")
+	bind("auth_rate_limit_exchange_identity_per_min", "AUTH_RATE_LIMIT_EXCHANGE_IDENTITY_PER_MIN")
+	bind("auth_rate_limit_refresh_ip_per_min", "AUTH_RATE_LIMIT_REFRESH_IP_PER_MIN")
+	bind("auth_rate_limit_refresh_session_per_min", "AUTH_RATE_LIMIT_REFRESH_SESSION_PER_MIN")
+	bind("auth_rate_limit_link_account_per_min", "AUTH_RATE_LIMIT_LINK_ACCOUNT_PER_MIN")
+	bind("auth_rate_limit_logout_all_account_per_min", "AUTH_RATE_LIMIT_LOGOUT_ALL_ACCOUNT_PER_MIN")
 
 	v.SetDefault("app_name", "tycoon-backend")
 	v.SetDefault("app_env", "development")
@@ -131,6 +197,29 @@ func Load() (*Config, error) {
 	v.SetDefault("cors_allowed_origins", "")
 	v.SetDefault("auth_mode", "jwt")
 	v.SetDefault("auth_dev_principals", "")
+	v.SetDefault("auth_trust_proxy", false)
+	v.SetDefault("auth_firebase_project_id", "")
+	v.SetDefault("auth_firebase_credentials_file", "")
+	v.SetDefault("firebase_auth_emulator_host", "")
+	v.SetDefault("auth_token_issuer", "http://localhost:8080")
+	v.SetDefault("auth_token_audience", "tycoon-api")
+	v.SetDefault("auth_access_ttl", "15m")
+	v.SetDefault("auth_refresh_ttl", "720h")
+	v.SetDefault("auth_clock_skew", "60s")
+	v.SetDefault("auth_signing_mode", "local")
+	v.SetDefault("auth_signing_active_kid", "local-dev-1")
+	v.SetDefault("auth_signing_kms_keys", "")
+	v.SetDefault("auth_signing_local_key_file", "")
+	v.SetDefault("auth_signing_local_kid", "local-dev-1")
+	v.SetDefault("auth_rate_limit_backend", "memory")
+	v.SetDefault("auth_rate_limit_redis_url", "")
+	v.SetDefault("auth_rate_limit_redis_prefix", "tycoon:auth:ratelimit:")
+	v.SetDefault("auth_rate_limit_exchange_ip_per_min", 10)
+	v.SetDefault("auth_rate_limit_exchange_identity_per_min", 30)
+	v.SetDefault("auth_rate_limit_refresh_ip_per_min", 60)
+	v.SetDefault("auth_rate_limit_refresh_session_per_min", 30)
+	v.SetDefault("auth_rate_limit_link_account_per_min", 10)
+	v.SetDefault("auth_rate_limit_logout_all_account_per_min", 5)
 
 	cfg := &Config{
 		AppName:  v.GetString("app_name"),
@@ -164,6 +253,37 @@ func Load() (*Config, error) {
 		Auth: AuthConfig{
 			Mode:          v.GetString("auth_mode"),
 			DevPrincipals: splitList(v.GetString("auth_dev_principals")),
+			TrustedProxy:  v.GetBool("auth_trust_proxy"),
+			Firebase: FirebaseConfig{
+				ProjectID:       v.GetString("auth_firebase_project_id"),
+				CredentialsFile: v.GetString("auth_firebase_credentials_file"),
+				EmulatorHost:    v.GetString("firebase_auth_emulator_host"),
+			},
+			Token: TokenConfig{
+				Issuer:     v.GetString("auth_token_issuer"),
+				Audience:   v.GetString("auth_token_audience"),
+				AccessTTL:  v.GetDuration("auth_access_ttl"),
+				RefreshTTL: v.GetDuration("auth_refresh_ttl"),
+				ClockSkew:  v.GetDuration("auth_clock_skew"),
+			},
+			Signing: SigningConfig{
+				Mode:         v.GetString("auth_signing_mode"),
+				ActiveKID:    v.GetString("auth_signing_active_kid"),
+				KMSKeys:      splitKeyMap(v.GetString("auth_signing_kms_keys")),
+				LocalKeyFile: v.GetString("auth_signing_local_key_file"),
+				LocalKID:     v.GetString("auth_signing_local_kid"),
+			},
+			RateLimit: RateLimitConfig{
+				Backend:                v.GetString("auth_rate_limit_backend"),
+				RedisURL:               v.GetString("auth_rate_limit_redis_url"),
+				RedisPrefix:            v.GetString("auth_rate_limit_redis_prefix"),
+				ExchangeIPPerMin:       v.GetInt("auth_rate_limit_exchange_ip_per_min"),
+				ExchangeIdentityPerMin: v.GetInt("auth_rate_limit_exchange_identity_per_min"),
+				RefreshIPPerMin:        v.GetInt("auth_rate_limit_refresh_ip_per_min"),
+				RefreshSessionPerMin:   v.GetInt("auth_rate_limit_refresh_session_per_min"),
+				LinkAccountPerMin:      v.GetInt("auth_rate_limit_link_account_per_min"),
+				LogoutAllAccountPerMin: v.GetInt("auth_rate_limit_logout_all_account_per_min"),
+			},
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: splitOrigins(v.GetString("cors_allowed_origins")),
@@ -208,6 +328,25 @@ func splitList(value string) []string {
 		}
 	}
 	return out
+}
+
+func splitKeyMap(value string) map[string]string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	keys := make(map[string]string)
+	for _, entry := range strings.Split(value, ",") {
+		kid, arn, ok := strings.Cut(entry, "=")
+		kid = strings.TrimSpace(kid)
+		arn = strings.TrimSpace(arn)
+		if ok && kid != "" && arn != "" {
+			keys[kid] = arn
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return keys
 }
 
 func splitOrigins(value string) []string {

@@ -33,7 +33,7 @@ func TestSensitiveValuesNeverAppearInResponsesOrLogs(t *testing.T) {
 		t.Fatalf("provider: %v", err)
 	}
 	var logs bytes.Buffer
-	modules := app.BuildModules(h.Pool)
+	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
 	router := NewRouter(RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(&logs, nil)),
 		DB:        contractPinger{},

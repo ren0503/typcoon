@@ -159,9 +159,119 @@ paths:
   /boarding-passes/{id}:
     get: { tags: [guest], summary: Get boarding pass, parameters: [{$ref: '#/components/parameters/Id'}], responses: {200: {$ref: '#/components/responses/BoardingPass'}, 404: {$ref: '#/components/responses/NotFound'}} }
     post: { tags: [guest], summary: Revoke boarding pass (sets revoked_at), parameters: [{$ref: '#/components/parameters/Id'}], responses: {200: {$ref: '#/components/responses/BoardingPass'}, 404: {$ref: '#/components/responses/NotFound'}} }
+  /auth/firebase/exchange:
+    post:
+      tags: [auth]
+      summary: Exchange a Firebase ID Token for a backend session
+      description: Verifies the Firebase ID Token and returns backend-owned tokens. The Firebase ID Token is never accepted as an access token or persisted as a session credential. Requesting `fleet_console` never provisions an account and requires an existing active backend administrator grant linked to the same internal account; Firebase claims cannot grant Fleet Console access.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FirebaseExchangeRequest'}
+      responses:
+        200: {$ref: '#/components/responses/TokenResponse'}
+        400: {$ref: '#/components/responses/BadRequest'}
+        401: {$ref: '#/components/responses/Unauthorized'}
+        403: {$ref: '#/components/responses/Forbidden'}
+        409: {$ref: '#/components/responses/Conflict'}
+        422: {$ref: '#/components/responses/ValidationError'}
+        429: {$ref: '#/components/responses/RateLimited'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate a refresh token and issue a new backend session
+      description: The presented refresh token is single-use; a successful refresh returns a replacement access token and refresh token in the same session family.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        200: {$ref: '#/components/responses/TokenResponse'}
+        400: {$ref: '#/components/responses/BadRequest'}
+        401: {$ref: '#/components/responses/Unauthorized'}
+        403: {$ref: '#/components/responses/Forbidden'}
+        422: {$ref: '#/components/responses/ValidationError'}
+        429: {$ref: '#/components/responses/RateLimited'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current backend refresh-token family
+      description: Idempotently revokes the session family for a well-formed refresh token. Unknown, expired, or already-revoked tokens still return 204 without revealing session existence.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LogoutRequest'}
+      responses:
+        204: {$ref: '#/components/responses/NoContent'}
+        400: {$ref: '#/components/responses/BadRequest'}
+        422: {$ref: '#/components/responses/ValidationError'}
+        429: {$ref: '#/components/responses/RateLimited'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
+  /auth/logout-all:
+    post:
+      tags: [auth]
+      summary: Revoke every backend session for the authenticated account
+      description: Idempotently revokes every refresh-token family for the authenticated internal account, including Guest Mobile and Fleet Console sessions. Requires a backend access token.
+      responses:
+        204: {$ref: '#/components/responses/NoContent'}
+        401: {$ref: '#/components/responses/Unauthorized'}
+        403: {$ref: '#/components/responses/Forbidden'}
+        429: {$ref: '#/components/responses/RateLimited'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
+  /auth/identities/link:
+    post:
+      tags: [auth]
+      summary: Link a freshly verified Firebase identity to the authenticated account
+      description: Requires a backend access token. Links only the freshly verified Firebase identity to the authenticated account; accounts are never resolved by email. Repeating the same link is idempotent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdentityLinkRequest'}
+      responses:
+        200: {$ref: '#/components/responses/Identity'}
+        400: {$ref: '#/components/responses/BadRequest'}
+        401: {$ref: '#/components/responses/Unauthorized'}
+        403: {$ref: '#/components/responses/Forbidden'}
+        409: {$ref: '#/components/responses/Conflict'}
+        422: {$ref: '#/components/responses/ValidationError'}
+        429: {$ref: '#/components/responses/RateLimited'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
+  /auth/identities/{identityId}:
+    delete:
+      tags: [auth]
+      summary: Unlink an identity from the authenticated account
+      description: Requires a backend access token. Deletes only an identity owned by the authenticated account and only when at least one other sign-in identity remains.
+      parameters:
+        - {name: identityId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        204: {$ref: '#/components/responses/NoContent'}
+        400: {$ref: '#/components/responses/BadRequest'}
+        401: {$ref: '#/components/responses/Unauthorized'}
+        403: {$ref: '#/components/responses/Forbidden'}
+        404: {$ref: '#/components/responses/NotFound'}
+        409: {$ref: '#/components/responses/Conflict'}
+        429: {$ref: '#/components/responses/RateLimited'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
+
 components:
   securitySchemes:
     principal: { type: http, scheme: bearer, bearerFormat: opaque-token-or-dev-principal, description: 'Default-deny; dev principal provider only for non-production configuration.' }
+  headers:
+    NoStore:
+      description: Token-bearing and authentication responses must not be cached.
+      schema: {type: string, example: 'no-store'}
+    RetryAfter:
+      description: Seconds until the caller may retry.
+      schema: {type: integer, minimum: 1, example: 30}
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     ShipId: {name: shipId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -250,9 +360,112 @@ components:
     GuestUpdate: {type: object, properties: {full_name: {type: string}, special_needs: {type: string, nullable: true}, is_lead: {type: boolean}, muster_station: {type: string, nullable: true}, document_type: {type: string, nullable: true}}}
     Guest: {type: object, description: never includes document/emergency-contact ciphertext or plaintext, properties: {id: {type: string, format: uuid}, booking_id: {type: string, format: uuid}, full_name: {type: string}, has_document: {type: boolean}, has_emergency_contact: {type: boolean}, document_key_id: {type: string, nullable: true}, is_lead: {type: boolean}, muster_station: {type: string, nullable: true}}}
     BoardingPass: {type: object, description: does not include the signed credential itself (jwts issued by later auth feature); metadata only, properties: {id: {type: string, format: uuid}, booking_id: {type: string, format: uuid}, guest_id: {type: string, format: uuid, nullable: true}, jti: {type: string, format: uuid}, issued_at: {type: string, format: date-time}, expires_at: {type: string, format: date-time}, revoked_at: {type: string, format: date-time, nullable: true}}}
+    Client:
+      type: string
+      enum: [guest_mobile, fleet_console]
+      default: guest_mobile
+      description: Requested session class; never grants authorization by itself. `fleet_console` requires an existing active backend administrator grant and is rejected with `403` otherwise.
+    FirebaseExchangeRequest:
+      type: object
+      required: [firebase_id_token]
+      properties:
+        firebase_id_token:
+          type: string
+          minLength: 1
+          description: Firebase ID Token obtained by the client from Firebase Authentication.
+        client: {$ref: '#/components/schemas/Client'}
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          description: Opaque single-use backend refresh token.
+    LogoutRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          description: Opaque backend refresh token whose session family should be revoked.
+    IdentityLinkRequest:
+      type: object
+      required: [firebase_id_token]
+      properties:
+        firebase_id_token:
+          type: string
+          minLength: 1
+          description: Freshly verified Firebase ID Token for the identity being linked.
+    Identity:
+      type: object
+      required: [id, account_id, provider, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        account_id: {type: string, format: uuid}
+        provider: {type: string, enum: [firebase]}
+        email: {type: string, nullable: true, description: 'Verified email stored on the link, if any'}
+        created_at: {type: string, format: date-time}
+    Session:
+      type: object
+      required: [session_id, account_id, client, access_expires_at, refresh_expires_at]
+      properties:
+        session_id: {type: string, format: uuid, description: Opaque refresh-token family identifier}
+        account_id: {type: string, format: uuid, description: Stable internal account identifier}
+        client: {$ref: '#/components/schemas/Client'}
+        access_expires_at: {type: string, format: date-time}
+        refresh_expires_at: {type: string, format: date-time}
+    TokenResponse:
+      type: object
+      required: [token_type, access_token, expires_in, refresh_token, session]
+      properties:
+        token_type: {type: string, enum: [Bearer]}
+        access_token: {type: string, description: Backend-signed JWT; never a Firebase ID Token}
+        expires_in: {type: integer, minimum: 1, maximum: 900, description: Access-token lifetime in seconds}
+        refresh_token: {type: string, description: Returned only in this body; never in a URL}
+        session: {$ref: '#/components/schemas/Session'}
   responses:
+    TokenResponse:
+      description: Backend session issued. The body and headers must not be cached.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
+        Pragma: {schema: {type: string, example: no-cache}}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TokenResponse'}
+    Forbidden:
+      description: The principal or internal account is not authorized for the requested client or operation. Fleet Console requests require an active backend administrator grant; Firebase custom claims are never accepted as authority.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    RateLimited:
+      description: Authentication rate limit exceeded.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    AuthUnavailable:
+      description: Firebase, signing, shared limiter, or another required dependency is unavailable; the request failed closed.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Identity:
+      description: Identity link created or already present for the authenticated account.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Identity'}
+    NoContent:
+      description: Operation completed idempotently; no body.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
     BadRequest: {description: 'Malformed request, bad cursor, invalid identifier', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
-    Unauthorized: {description: 'Missing or invalid principal (default deny)', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
+    Unauthorized: {description: 'Missing, invalid, expired, revoked, or unusable credential; details are intentionally generic', headers: {Cache-Control: {$ref: '#/components/headers/NoStore'}}, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     NotFound: {description: Resource not found or soft-deleted-to-caller, content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     Conflict: {description: 'Unique/exclusion constraint conflict, idempotency mismatch', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
     ValidationError: {description: 'Field-level validation or business rule failure', content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}}
@@ -313,3 +526,4 @@ tags:
   - name: partner
   - name: booking
   - name: guest
+  - name: auth

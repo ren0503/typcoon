@@ -66,6 +66,8 @@ const (
 	CodeIdempotencyConflict = "idempotency_conflict"
 	CodeBusinessRule        = "business_rule_violation"
 	CodeRetryable           = "retryable"
+	CodeRateLimited         = "rate_limited"
+	CodeAuthUnavailable     = "auth_unavailable"
 )
 
 // NotFound creates a not-found application error.
@@ -96,4 +98,14 @@ func Unauthorized(message string) *Error {
 // Forbidden creates an authorization application error.
 func Forbidden(message string) *Error {
 	return New(CodeForbidden, message, http.StatusForbidden)
+}
+
+// RateLimited creates an authentication rate-limit application error.
+func RateLimited(message string) *Error {
+	return New(CodeRateLimited, message, http.StatusTooManyRequests)
+}
+
+// AuthUnavailable creates a fail-closed authentication dependency error.
+func AuthUnavailable(message string) *Error {
+	return New(CodeAuthUnavailable, message, http.StatusServiceUnavailable)
 }

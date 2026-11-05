@@ -1,0 +1,342 @@
+openapi: "3.0.3"
+info:
+  title: Yacht Management System — Firebase SSO Auth API
+  version: "0.1.0"
+  description: |
+    OpenAPI fragment for feature `003-firebase-sso-auth`. The project's delivered
+    `openapi/openapi.yaml` prepends `/v1` to these paths, matching existing conventions.
+
+    Rules:
+      * Exchange, refresh, logout, and JWKS are public routes; logout-all, link, and
+        unlink require a backend access token.
+      * Token-bearing responses are non-cacheable and never include a Firebase ID Token.
+      * Errors use the shared envelope `{ error: { code, message, request_id } }`.
+      * Unknown, expired, revoked, and malformed refresh tokens return one generic 401.
+      * A Firebase identity whose verified email collides with an existing account is
+        not auto-provisioned; exchange returns 409 `identity_link_required`.
+      * Rate-limited requests return 429 with `Retry-After`; an unavailable limiter,
+        signer, or Firebase verifier returns 503 `auth_unavailable` rather than failing open.
+
+servers:
+  - url: /v1
+
+paths:
+  /auth/firebase/exchange:
+    post:
+      tags: [auth]
+      summary: Exchange a Firebase ID Token for a backend session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/FirebaseExchangeRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/TokenResponse'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate a refresh token and issue a new backend session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RefreshRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/TokenResponse'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the current refresh-token family
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LogoutRequest'}
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+
+  /auth/logout-all:
+    post:
+      tags: [auth]
+      summary: Revoke every backend session for the authenticated account
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+
+  /auth/identities/link:
+    post:
+      tags: [auth]
+      summary: Link a freshly verified Firebase identity to the authenticated account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IdentityLinkRequest'}
+      responses:
+        '200': {$ref: '#/components/responses/Identity'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+
+  /auth/identities/{identityId}:
+    delete:
+      tags: [auth]
+      summary: Unlink an identity from the authenticated account
+      parameters:
+        - {name: identityId, in: path, required: true, schema: {type: string, format: uuid}}
+      responses:
+        '204': {$ref: '#/components/responses/NoContent'}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/AuthUnavailable'}
+
+  /auth/jwks:
+    get:
+      tags: [auth]
+      summary: Publish the backend access-token verification keys
+      security: []
+      responses:
+        '200':
+          description: Public JWKS containing verification keys only
+          headers:
+            Cache-Control: {$ref: '#/components/headers/PublicCache'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JWKS'}
+
+components:
+  securitySchemes:
+    principal:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Backend-issued access token; Firebase ID Tokens are never accepted as access tokens.
+
+  headers:
+    NoStore:
+      description: Tokens and session data must not be cached.
+      schema: {type: string, example: 'no-store'}
+    RetryAfter:
+      description: Seconds until the caller may retry.
+      schema: {type: integer, minimum: 1, example: 30}
+    PublicCache:
+      description: Public verification keys may be cached briefly; never private material.
+      schema: {type: string, example: 'public, max-age=300'}
+
+  parameters:
+    IdentityId:
+      name: identityId
+      in: path
+      required: true
+      schema: {type: string, format: uuid}
+
+  schemas:
+    Client:
+      type: string
+      enum: [guest_mobile, fleet_console]
+      default: guest_mobile
+      description: Requested session class; never grants authorization by itself.
+
+    FirebaseExchangeRequest:
+      type: object
+      required: [firebase_id_token]
+      properties:
+        firebase_id_token:
+          type: string
+          minLength: 1
+          description: Firebase ID Token obtained by the client from Firebase Authentication.
+        client:
+          $ref: '#/components/schemas/Client'
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          description: Opaque single-use backend refresh token.
+
+    LogoutRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+
+    IdentityLinkRequest:
+      type: object
+      required: [firebase_id_token]
+      properties:
+        firebase_id_token:
+          type: string
+          minLength: 1
+          description: Freshly verified Firebase ID Token for the identity being linked.
+
+    Session:
+      type: object
+      required: [session_id, account_id, client, access_expires_at, refresh_expires_at]
+      properties:
+        session_id: {type: string, format: uuid, description: Opaque refresh-token family identifier}
+        account_id: {type: string, format: uuid, description: Stable internal account identifier}
+        client: {$ref: '#/components/schemas/Client'}
+        access_expires_at: {type: string, format: date-time}
+        refresh_expires_at: {type: string, format: date-time}
+
+    TokenResponse:
+      type: object
+      required: [token_type, access_token, expires_in, refresh_token, session]
+      properties:
+        token_type: {type: string, enum: [Bearer]}
+        access_token: {type: string, description: Backend-signed JWT; never a Firebase ID Token}
+        expires_in: {type: integer, minimum: 1, maximum: 900, description: Access-token lifetime in seconds}
+        refresh_token: {type: string, description: Returned only in this body; never in a URL}
+        session: {$ref: '#/components/schemas/Session'}
+
+    Identity:
+      type: object
+      required: [id, account_id, provider, created_at]
+      properties:
+        id: {type: string, format: uuid}
+        account_id: {type: string, format: uuid}
+        provider: {type: string, enum: [firebase]}
+        email: {type: string, nullable: true, description: 'Verified email stored on the link, if any'}
+        created_at: {type: string, format: date-time}
+
+    JWK:
+      type: object
+      required: [kty, kid, use, alg, n, e]
+      properties:
+        kty: {type: string, enum: [RSA]}
+        kid: {type: string}
+        use: {type: string, enum: [sig]}
+        alg: {type: string, enum: [RS256]}
+        n: {type: string, description: Base64url-encoded RSA modulus}
+        e: {type: string, description: Base64url-encoded RSA exponent}
+
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items: {$ref: '#/components/schemas/JWK'}
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: {type: string, example: unauthorized}
+            message: {type: string}
+            request_id: {type: string, nullable: true}
+
+  responses:
+    TokenResponse:
+      description: Backend session issued. The body and headers must not be cached.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
+        Pragma: {schema: {type: string, example: no-cache}}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/TokenResponse'}
+    Identity:
+      description: Identity link created or already present for the authenticated account.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Identity'}
+    NoContent:
+      description: Operation completed idempotently; no body.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
+    BadRequest:
+      description: Malformed JSON, missing required value, or malformed identifier.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unauthorized:
+      description: Missing, invalid, expired, revoked, or unusable credential. Details are intentionally generic.
+      headers:
+        Cache-Control: {$ref: '#/components/headers/NoStore'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: The authenticated principal is not authorized for the requested client or operation.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    NotFound:
+      description: Identity does not exist for the authenticated account, or the resource is not disclosed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Conflict:
+      description: '`identity_link_required`: identity needs explicit linking; `identity_conflict`: already linked elsewhere; `last_identity`: unlink would remove the last sign-in method.'
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    ValidationError:
+      description: Request shape or value failed validation.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    RateLimited:
+      description: Authentication rate limit exceeded.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    AuthUnavailable:
+      description: Firebase, signing, shared limiter, or another required dependency is unavailable; the request failed closed.
+      headers:
+        Retry-After: {$ref: '#/components/headers/RetryAfter'}
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+
+security:
+  - principal: []
+
+tags:
+  - name: auth

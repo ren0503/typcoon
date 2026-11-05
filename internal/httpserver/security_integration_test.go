@@ -63,7 +63,7 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	modules := app.BuildModules(h.Pool)
+	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
 	router := NewRouter(RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        contractPinger{},

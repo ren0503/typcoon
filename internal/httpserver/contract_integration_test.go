@@ -32,11 +32,12 @@ func TestDeclaredOperationsAreMounted(t *testing.T) {
 		t.Fatalf("openapi is invalid: %v", err)
 	}
 
-	modules := app.BuildModules(nil)
+	modules := app.BuildModules(nil, slog.New(slog.DiscardHandler), nil)
 	router := NewRouter(RouterConfig{
-		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-		DB:        contractPinger{},
-		APIRoutes: modules.RegisterRoutes,
+		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		DB:              contractPinger{},
+		PublicAPIRoutes: modules.RegisterPublicRoutes,
+		APIRoutes:       modules.RegisterRoutes,
 	})
 	walker, ok := router.(chi.Routes)
 	if !ok {
@@ -91,7 +92,7 @@ func TestExercisedRequestsAndResponsesMatchSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	modules := app.BuildModules(h.Pool)
+	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
 	router := NewRouter(RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        contractPinger{},

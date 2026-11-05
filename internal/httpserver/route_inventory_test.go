@@ -48,7 +48,7 @@ func TestRouteInventoryExcludesInternalTables(t *testing.T) {
 }
 
 func TestBusinessRouteTreeBuilds(t *testing.T) {
-	modules := app.BuildModules(nil, nil)
+	modules := app.BuildModules(nil, slog.New(slog.DiscardHandler), nil)
 	cfg := RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        routePinger{},

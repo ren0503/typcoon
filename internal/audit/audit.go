@@ -84,7 +84,11 @@ func (s *Store) AppendTx(ctx context.Context, tx Execer, entry Entry) error {
 	if len(details) == 0 {
 		details = json.RawMessage(`{}`)
 	}
-	_, err := tx.Exec(ctx, `
+	execer := tx
+	if execer == nil {
+		execer = s.pool
+	}
+	_, err := execer.Exec(ctx, `
 		INSERT INTO audit_log
 			(occurred_at, source, actor_type, actor_id, action, entity, entity_id, ship_id, voyage_id, details)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,

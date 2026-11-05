@@ -38,6 +38,17 @@ func (q *Queries) AssignAdminShipAccess(ctx context.Context, arg AssignAdminShip
 	return err
 }
 
+const countAccountIdentities = `-- name: CountAccountIdentities :one
+SELECT count(*) FROM account_identities WHERE account_id = $1
+`
+
+func (q *Queries) CountAccountIdentities(ctx context.Context, accountID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countAccountIdentities, accountID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createAccount = `-- name: CreateAccount :one
 INSERT INTO accounts (id, email, display_name, phone, locale, status)
 VALUES ($1, $2, $3, $4, $5, $6)
@@ -81,7 +92,7 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (A
 const createAdminUser = `-- name: CreateAdminUser :one
 INSERT INTO admin_users (id, tenant_id, email, display_name, idp_subject, role, mfa_enabled, status)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, tenant_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at
+RETURNING id, tenant_id, account_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at
 `
 
 type CreateAdminUserParams struct {
@@ -110,6 +121,7 @@ func (q *Queries) CreateAdminUser(ctx context.Context, arg CreateAdminUserParams
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
+		&i.AccountID,
 		&i.Email,
 		&i.DisplayName,
 		&i.IdpSubject,
@@ -126,9 +138,9 @@ func (q *Queries) CreateAdminUser(ctx context.Context, arg CreateAdminUserParams
 }
 
 const createRefreshToken = `-- name: CreateRefreshToken :one
-INSERT INTO refresh_tokens (id, subject_type, subject_id, family_id, token_hash, expires_at, user_agent)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, subject_type, subject_id, family_id, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent
+INSERT INTO refresh_tokens (id, subject_type, subject_id, family_id, client, token_hash, expires_at, user_agent)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+RETURNING id, subject_type, subject_id, family_id, client, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent
 `
 
 type CreateRefreshTokenParams struct {
@@ -136,6 +148,7 @@ type CreateRefreshTokenParams struct {
 	SubjectType string    `json:"subject_type"`
 	SubjectID   uuid.UUID `json:"subject_id"`
 	FamilyID    uuid.UUID `json:"family_id"`
+	Client      string    `json:"client"`
 	TokenHash   []byte    `json:"token_hash"`
 	ExpiresAt   time.Time `json:"expires_at"`
 	UserAgent   *string   `json:"user_agent"`
@@ -147,6 +160,7 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		arg.SubjectType,
 		arg.SubjectID,
 		arg.FamilyID,
+		arg.Client,
 		arg.TokenHash,
 		arg.ExpiresAt,
 		arg.UserAgent,
@@ -157,6 +171,7 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		&i.SubjectType,
 		&i.SubjectID,
 		&i.FamilyID,
+		&i.Client,
 		&i.TokenHash,
 		&i.IssuedAt,
 		&i.ExpiresAt,
@@ -166,6 +181,23 @@ func (q *Queries) CreateRefreshToken(ctx context.Context, arg CreateRefreshToken
 		&i.UserAgent,
 	)
 	return i, err
+}
+
+const deleteAccountIdentityForAccount = `-- name: DeleteAccountIdentityForAccount :execrows
+DELETE FROM account_identities WHERE id = $1 AND account_id = $2
+`
+
+type DeleteAccountIdentityForAccountParams struct {
+	ID        uuid.UUID `json:"id"`
+	AccountID uuid.UUID `json:"account_id"`
+}
+
+func (q *Queries) DeleteAccountIdentityForAccount(ctx context.Context, arg DeleteAccountIdentityForAccountParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteAccountIdentityForAccount, arg.ID, arg.AccountID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getAccount = `-- name: GetAccount :one
@@ -208,8 +240,58 @@ func (q *Queries) GetAccountIdentity(ctx context.Context, id uuid.UUID) (Account
 	return i, err
 }
 
+const getAccountIdentityByProviderSubject = `-- name: GetAccountIdentityByProviderSubject :one
+SELECT id, account_id, provider, provider_sub, email, created_at FROM account_identities WHERE provider = $1 AND provider_sub = $2
+`
+
+type GetAccountIdentityByProviderSubjectParams struct {
+	Provider    string `json:"provider"`
+	ProviderSub string `json:"provider_sub"`
+}
+
+func (q *Queries) GetAccountIdentityByProviderSubject(ctx context.Context, arg GetAccountIdentityByProviderSubjectParams) (AccountIdentity, error) {
+	row := q.db.QueryRow(ctx, getAccountIdentityByProviderSubject, arg.Provider, arg.ProviderSub)
+	var i AccountIdentity
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Provider,
+		&i.ProviderSub,
+		&i.Email,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getActiveAdminUserByAccountID = `-- name: GetActiveAdminUserByAccountID :one
+SELECT id, tenant_id, account_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at FROM admin_users
+WHERE account_id = $1 AND status = 'active' AND deleted_at IS NULL
+`
+
+func (q *Queries) GetActiveAdminUserByAccountID(ctx context.Context, accountID uuid.NullUUID) (AdminUser, error) {
+	row := q.db.QueryRow(ctx, getActiveAdminUserByAccountID, accountID)
+	var i AdminUser
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.AccountID,
+		&i.Email,
+		&i.DisplayName,
+		&i.IdpSubject,
+		&i.Role,
+		&i.MfaEnabled,
+		&i.Status,
+		&i.LastLoginAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Version,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getAdminUser = `-- name: GetAdminUser :one
-SELECT id, tenant_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at FROM admin_users WHERE id = $1 AND deleted_at IS NULL
+SELECT id, tenant_id, account_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at FROM admin_users WHERE id = $1 AND deleted_at IS NULL
 `
 
 func (q *Queries) GetAdminUser(ctx context.Context, id uuid.UUID) (AdminUser, error) {
@@ -218,6 +300,7 @@ func (q *Queries) GetAdminUser(ctx context.Context, id uuid.UUID) (AdminUser, er
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
+		&i.AccountID,
 		&i.Email,
 		&i.DisplayName,
 		&i.IdpSubject,
@@ -234,7 +317,7 @@ func (q *Queries) GetAdminUser(ctx context.Context, id uuid.UUID) (AdminUser, er
 }
 
 const getRefreshTokenByHash = `-- name: GetRefreshTokenByHash :one
-SELECT id, subject_type, subject_id, family_id, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent FROM refresh_tokens WHERE token_hash = $1
+SELECT id, subject_type, subject_id, family_id, client, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent FROM refresh_tokens WHERE token_hash = $1
 `
 
 func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash []byte) (RefreshToken, error) {
@@ -245,6 +328,31 @@ func (q *Queries) GetRefreshTokenByHash(ctx context.Context, tokenHash []byte) (
 		&i.SubjectType,
 		&i.SubjectID,
 		&i.FamilyID,
+		&i.Client,
+		&i.TokenHash,
+		&i.IssuedAt,
+		&i.ExpiresAt,
+		&i.UsedAt,
+		&i.RevokedAt,
+		&i.ReplacedBy,
+		&i.UserAgent,
+	)
+	return i, err
+}
+
+const getRefreshTokenByHashForUpdate = `-- name: GetRefreshTokenByHashForUpdate :one
+SELECT id, subject_type, subject_id, family_id, client, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent FROM refresh_tokens WHERE token_hash = $1 FOR UPDATE
+`
+
+func (q *Queries) GetRefreshTokenByHashForUpdate(ctx context.Context, tokenHash []byte) (RefreshToken, error) {
+	row := q.db.QueryRow(ctx, getRefreshTokenByHashForUpdate, tokenHash)
+	var i RefreshToken
+	err := row.Scan(
+		&i.ID,
+		&i.SubjectType,
+		&i.SubjectID,
+		&i.FamilyID,
+		&i.Client,
 		&i.TokenHash,
 		&i.IssuedAt,
 		&i.ExpiresAt,
@@ -390,7 +498,7 @@ func (q *Queries) ListAdminShipAccess(ctx context.Context, adminUserID uuid.UUID
 }
 
 const listAdminUsers = `-- name: ListAdminUsers :many
-SELECT id, tenant_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at FROM admin_users
+SELECT id, tenant_id, account_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at FROM admin_users
 WHERE tenant_id = $1 AND deleted_at IS NULL
   AND id > COALESCE($2::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
 ORDER BY id
@@ -415,6 +523,7 @@ func (q *Queries) ListAdminUsers(ctx context.Context, arg ListAdminUsersParams) 
 		if err := rows.Scan(
 			&i.ID,
 			&i.TenantID,
+			&i.AccountID,
 			&i.Email,
 			&i.DisplayName,
 			&i.IdpSubject,
@@ -439,8 +548,8 @@ func (q *Queries) ListAdminUsers(ctx context.Context, arg ListAdminUsersParams) 
 
 const markRefreshTokenUsed = `-- name: MarkRefreshTokenUsed :one
 UPDATE refresh_tokens SET used_at = now(), replaced_by = $1
-WHERE id = $2 AND used_at IS NULL
-RETURNING id, subject_type, subject_id, family_id, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent
+WHERE id = $2 AND used_at IS NULL AND revoked_at IS NULL
+RETURNING id, subject_type, subject_id, family_id, client, token_hash, issued_at, expires_at, used_at, revoked_at, replaced_by, user_agent
 `
 
 type MarkRefreshTokenUsedParams struct {
@@ -456,6 +565,7 @@ func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, arg MarkRefreshToken
 		&i.SubjectType,
 		&i.SubjectID,
 		&i.FamilyID,
+		&i.Client,
 		&i.TokenHash,
 		&i.IssuedAt,
 		&i.ExpiresAt,
@@ -465,6 +575,19 @@ func (q *Queries) MarkRefreshTokenUsed(ctx context.Context, arg MarkRefreshToken
 		&i.UserAgent,
 	)
 	return i, err
+}
+
+const revokeAccountRefreshTokens = `-- name: RevokeAccountRefreshTokens :execrows
+UPDATE refresh_tokens SET revoked_at = now()
+WHERE subject_type = 'account' AND subject_id = $1 AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeAccountRefreshTokens(ctx context.Context, subjectID uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeAccountRefreshTokens, subjectID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const revokeAdminShipAccess = `-- name: RevokeAdminShipAccess :execrows
@@ -579,7 +702,7 @@ UPDATE admin_users
 SET email = $1, display_name = $2, idp_subject = $3,
     role = $4, mfa_enabled = $5, status = $6
 WHERE id = $7 AND deleted_at IS NULL
-RETURNING id, tenant_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at
+RETURNING id, tenant_id, account_id, email, display_name, idp_subject, role, mfa_enabled, status, last_login_at, created_at, updated_at, version, deleted_at
 `
 
 type UpdateAdminUserParams struct {
@@ -606,6 +729,7 @@ func (q *Queries) UpdateAdminUser(ctx context.Context, arg UpdateAdminUserParams
 	err := row.Scan(
 		&i.ID,
 		&i.TenantID,
+		&i.AccountID,
 		&i.Email,
 		&i.DisplayName,
 		&i.IdpSubject,

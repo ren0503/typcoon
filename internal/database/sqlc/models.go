@@ -41,19 +41,20 @@ type AdminShipAccess struct {
 }
 
 type AdminUser struct {
-	ID          uuid.UUID  `json:"id"`
-	TenantID    uuid.UUID  `json:"tenant_id"`
-	Email       string     `json:"email"`
-	DisplayName string     `json:"display_name"`
-	IdpSubject  *string    `json:"idp_subject"`
-	Role        string     `json:"role"`
-	MfaEnabled  bool       `json:"mfa_enabled"`
-	Status      string     `json:"status"`
-	LastLoginAt *time.Time `json:"last_login_at"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	Version     int64      `json:"version"`
-	DeletedAt   *time.Time `json:"deleted_at"`
+	ID          uuid.UUID     `json:"id"`
+	TenantID    uuid.UUID     `json:"tenant_id"`
+	AccountID   uuid.NullUUID `json:"account_id"`
+	Email       string        `json:"email"`
+	DisplayName string        `json:"display_name"`
+	IdpSubject  *string       `json:"idp_subject"`
+	Role        string        `json:"role"`
+	MfaEnabled  bool          `json:"mfa_enabled"`
+	Status      string        `json:"status"`
+	LastLoginAt *time.Time    `json:"last_login_at"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
+	Version     int64         `json:"version"`
+	DeletedAt   *time.Time    `json:"deleted_at"`
 }
 
 type AiParam struct {
@@ -419,6 +420,7 @@ type RefreshToken struct {
 	SubjectType string        `json:"subject_type"`
 	SubjectID   uuid.UUID     `json:"subject_id"`
 	FamilyID    uuid.UUID     `json:"family_id"`
+	Client      string        `json:"client"`
 	TokenHash   []byte        `json:"token_hash"`
 	IssuedAt    time.Time     `json:"issued_at"`
 	ExpiresAt   time.Time     `json:"expires_at"`

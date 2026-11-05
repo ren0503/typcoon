@@ -18,6 +18,7 @@ type RouterConfig struct {
 	DB                 handlers.Pinger
 	CORSAllowedOrigins []string
 	Provider           auth.Provider
+	PublicAPIRoutes    func(r chi.Router)
 	APIRoutes          func(r chi.Router)
 }
 
@@ -31,14 +32,21 @@ func NewRouter(cfg RouterConfig) http.Handler {
 
 	handlers.Register(r, cfg.DB, cfg.Logger)
 
-	if cfg.APIRoutes != nil {
-		provider := cfg.Provider
-		if provider == nil {
-			provider = auth.DenyAllProvider{}
-		}
+	if cfg.PublicAPIRoutes != nil || cfg.APIRoutes != nil {
 		r.Route("/v1", func(r chi.Router) {
-			r.Use(custommiddleware.Authenticate(provider, cfg.Logger))
-			cfg.APIRoutes(r)
+			if cfg.PublicAPIRoutes != nil {
+				cfg.PublicAPIRoutes(r)
+			}
+			if cfg.APIRoutes != nil {
+				provider := cfg.Provider
+				if provider == nil {
+					provider = auth.DenyAllProvider{}
+				}
+				r.Group(func(r chi.Router) {
+					r.Use(custommiddleware.Authenticate(provider, cfg.Logger))
+					cfg.APIRoutes(r)
+				})
+			}
 		})
 	}
 

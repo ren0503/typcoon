@@ -22,6 +22,7 @@ import (
 
 // Modules holds every business module constructed behind its public interface.
 type Modules struct {
+	Auth     auth.Service
 	Tenant   tenant.TenantService
 	Ship     ship.Service
 	Voyage   voyage.Service
@@ -36,7 +37,7 @@ type Modules struct {
 }
 
 // BuildModules constructs the acyclic module graph described in data-model.md.
-func BuildModules(pool *pgxpool.Pool, logger *slog.Logger) Modules {
+func BuildModules(pool *pgxpool.Pool, logger *slog.Logger, authService auth.Service) Modules {
 	auditStore := audit.NewStore(pool, logger)
 	shipSvc := ship.New(pool, logger)
 	voyageSvc := voyage.New(pool, logger, shipSvc)
@@ -49,6 +50,7 @@ func BuildModules(pool *pgxpool.Pool, logger *slog.Logger) Modules {
 		panic("guest document cipher: " + err.Error())
 	}
 	return Modules{
+		Auth:     authService,
 		Tenant:   tenant.New(pool),
 		Ship:     shipSvc,
 		Voyage:   voyageSvc,
@@ -72,4 +74,10 @@ func (m Modules) RegisterRoutes(r chi.Router) {
 	partner.RegisterRoutes(r, m.Partner)
 	booking.RegisterRoutes(r, m.Booking)
 	guest.RegisterRoutes(r, m.Guest)
+	auth.RegisterProtectedRoutes(r, m.Auth)
+}
+
+// RegisterPublicRoutes mounts public auth routes outside the bearer middleware.
+func (m Modules) RegisterPublicRoutes(r chi.Router) {
+	auth.RegisterPublicRoutes(r, m.Auth)
 }

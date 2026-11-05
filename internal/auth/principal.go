@@ -22,6 +22,7 @@ const (
 type Principal struct {
 	ActorType ActorType
 	ActorID   string
+	AccountID uuid.UUID
 	TenantID  uuid.UUID
 	Role      string
 	ShipIDs   []uuid.UUID
