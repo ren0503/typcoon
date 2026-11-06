@@ -8,12 +8,17 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 func TestLocalSignerSignsVerifiableJWT(t *testing.T) {
@@ -142,5 +147,93 @@ func TestKMSSignerSignsAndImplementsCryptoSigner(t *testing.T) {
 	}
 	if signer.Public() == nil {
 		t.Fatal("crypto.Signer Public() returned nil")
+	}
+}
+
+func TestStaticKeySetRotationOverlapVerifiesOldTokens(t *testing.T) {
+	clock := &fixedClock{now: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	oldSigner, err := NewRandomLocalSigner("old-key")
+	if err != nil {
+		t.Fatalf("old signer: %v", err)
+	}
+	newSigner, err := NewRandomLocalSigner("new-key")
+	if err != nil {
+		t.Fatalf("new signer: %v", err)
+	}
+	oldSet, err := NewStaticKeySet("old-key", oldSigner)
+	if err != nil {
+		t.Fatalf("old key set: %v", err)
+	}
+	oldIssuer, err := NewAccessTokenIssuer(oldSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
+	if err != nil {
+		t.Fatalf("old issuer: %v", err)
+	}
+	accountID := uuid.New()
+	oldToken, _, err := oldIssuer.Issue(context.Background(), accountID, ClientGuestMobile)
+	if err != nil {
+		t.Fatalf("issue old token: %v", err)
+	}
+
+	overlapSet, err := NewStaticKeySet("new-key", oldSigner, newSigner)
+	if err != nil {
+		t.Fatalf("overlap key set: %v", err)
+	}
+	overlapIssuer, err := NewAccessTokenIssuer(overlapSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
+	if err != nil {
+		t.Fatalf("overlap issuer: %v", err)
+	}
+	if _, err := overlapIssuer.Validate(context.Background(), oldToken); err != nil {
+		t.Fatalf("old token did not verify during overlap: %v", err)
+	}
+
+	newToken, _, err := overlapIssuer.Issue(context.Background(), accountID, ClientGuestMobile)
+	if err != nil {
+		t.Fatalf("issue new token: %v", err)
+	}
+	parsed, _, err := jwt.NewParser().ParseUnverified(newToken, &AccessClaims{})
+	if err != nil {
+		t.Fatalf("parse new token: %v", err)
+	}
+	if kid, _ := parsed.Header["kid"].(string); kid != "new-key" {
+		t.Fatalf("new token kid = %q, want new-key", kid)
+	}
+	if _, err := overlapIssuer.Validate(context.Background(), newToken); err != nil {
+		t.Fatalf("new token did not verify: %v", err)
+	}
+
+	retiredSet, err := NewStaticKeySet("new-key", newSigner)
+	if err != nil {
+		t.Fatalf("retired key set: %v", err)
+	}
+	retiredIssuer, err := NewAccessTokenIssuer(retiredSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
+	if err != nil {
+		t.Fatalf("retired issuer: %v", err)
+	}
+	if _, err := retiredIssuer.Validate(context.Background(), oldToken); err == nil {
+		t.Fatal("old token verified after its key was retired")
+	}
+}
+
+func TestPublicJWKJSONContainsNoPrivateMaterial(t *testing.T) {
+	signer, err := NewRandomLocalSigner("public-only")
+	if err != nil {
+		t.Fatalf("NewRandomLocalSigner: %v", err)
+	}
+	set, err := NewStaticKeySet("public-only", signer)
+	if err != nil {
+		t.Fatalf("NewStaticKeySet: %v", err)
+	}
+	keys, err := set.PublicJWKS(context.Background())
+	if err != nil {
+		t.Fatalf("PublicJWKS: %v", err)
+	}
+	raw, err := json.Marshal(keys)
+	if err != nil {
+		t.Fatalf("marshal keys: %v", err)
+	}
+	for _, forbidden := range []string{`"d"`, `"p"`, `"q"`, `"dp"`, `"dq"`, `"qi"`} {
+		if strings.Contains(string(raw), forbidden) {
+			t.Fatalf("JWKS leaked private field %s: %s", forbidden, raw)
+		}
 	}
 }

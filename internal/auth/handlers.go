@@ -98,7 +98,14 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) jwks(w http.ResponseWriter, r *http.Request) {
-	h.notImplemented(w, r)
+	keys, err := h.service.JWKS(r.Context())
+	if err != nil {
+		httpx.SetNoStore(w)
+		writeAuthError(w, r, err)
+		return
+	}
+	w.Header().Set("Cache-Control", jwksCacheControl)
+	httpx.WriteJSON(w, http.StatusOK, jwksResponse{Keys: keys})
 }
 
 func (h *Handler) logoutAll(w http.ResponseWriter, r *http.Request) {
@@ -167,11 +174,6 @@ func accountIDFromPrincipal(r *http.Request) (uuid.UUID, bool) {
 		accountID, _ = uuid.Parse(principal.ActorID)
 	}
 	return accountID, accountID != uuid.Nil
-}
-
-func (h *Handler) notImplemented(w http.ResponseWriter, r *http.Request) {
-	httpx.SetNoStore(w)
-	httpx.WriteError(w, r, apperrors.AuthUnavailable("Authentication is temporarily unavailable."))
 }
 
 func writeAuthError(w http.ResponseWriter, r *http.Request, err error) {

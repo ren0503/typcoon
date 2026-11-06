@@ -65,8 +65,12 @@ type serviceStore interface {
 	RotateRefreshToken(ctx context.Context, hash []byte, replacement sqlc.CreateRefreshTokenParams, refreshedEntry, reuseEntry audit.Entry, now time.Time, appender audit.Appender) (sqlc.Account, sqlc.RefreshToken, error)
 }
 
-func (s *service) Exchange(ctx context.Context, input ExchangeInput) (IssuedSession, error) {
-	client, err := normalizeClient(input.Client)
+func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session IssuedSession, err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	client := input.Client
+	defer func() { s.logOperation("exchange", client, err) }()
+	client, err = normalizeClient(input.Client)
 	if err != nil {
 		return IssuedSession{}, err
 	}
@@ -152,7 +156,11 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (IssuedSess
 	}, nil
 }
 
-func (s *service) Refresh(ctx context.Context, input RefreshInput) (IssuedSession, error) {
+func (s *service) Refresh(ctx context.Context, input RefreshInput) (session IssuedSession, err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	client := ""
+	defer func() { s.logOperation("refresh", client, err) }()
 	rawToken := strings.TrimSpace(input.RefreshToken)
 	if rawToken == "" {
 		return IssuedSession{}, ErrAuthenticationFailed
@@ -172,6 +180,7 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (IssuedSessio
 		}
 		return IssuedSession{}, err
 	}
+	client = stored.Client
 	if stored.SubjectType != "account" || !validClient(stored.Client) {
 		return IssuedSession{}, ErrAuthenticationFailed
 	}
@@ -275,7 +284,11 @@ func mapRefreshError(err error) error {
 	return err
 }
 
-func (s *service) Logout(ctx context.Context, refreshToken string) error {
+func (s *service) Logout(ctx context.Context, refreshToken string) (err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	client := ""
+	defer func() { s.logOperation("logout", client, err) }()
 	rawToken := strings.TrimSpace(refreshToken)
 	if rawToken == "" {
 		return nil
@@ -288,6 +301,7 @@ func (s *service) Logout(ctx context.Context, refreshToken string) error {
 		}
 		return err
 	}
+	client = stored.Client
 	actorType := ActorAccount
 	if stored.SubjectType == "admin" {
 		actorType = ActorAdmin
@@ -306,7 +320,10 @@ func (s *service) Logout(ctx context.Context, refreshToken string) error {
 	return s.store.RevokeRefreshFamilyByHash(ctx, hash, entry, s.audit)
 }
 
-func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) error {
+func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) (err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	defer func() { s.logOperation("logout_all", "", err) }()
 	if accountID == uuid.Nil {
 		return ErrAuthenticationFailed
 	}
@@ -326,7 +343,10 @@ func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) error {
 	return s.store.RevokeAccountSessions(ctx, accountID, entry, s.audit)
 }
 
-func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken string) (Identity, error) {
+func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken string) (identity Identity, err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	defer func() { s.logOperation("identity_link", "", err) }()
 	if accountID == uuid.Nil || strings.TrimSpace(idToken) == "" {
 		return Identity{}, ErrAuthenticationFailed
 	}
@@ -387,7 +407,10 @@ func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken
 	}
 }
 
-func (s *service) UnlinkIdentity(ctx context.Context, accountID, identityID uuid.UUID) error {
+func (s *service) UnlinkIdentity(ctx context.Context, accountID, identityID uuid.UUID) (err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	defer func() { s.logOperation("identity_unlink", "", err) }()
 	if accountID == uuid.Nil || identityID == uuid.Nil {
 		return ErrAuthenticationFailed
 	}
@@ -588,6 +611,54 @@ func (s *service) checkRate(ctx context.Context, key string, limit int) error {
 		retryAfter = rateLimitWindow
 	}
 	return &RateLimitedError{RetryAfter: retryAfter}
+}
+
+func (s *service) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if s.timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, s.timeout)
+}
+
+func (s *service) logOperation(operation, client string, err error) {
+	outcome := "success"
+	if err != nil {
+		outcome = authErrorCategory(err)
+	}
+	attrs := []any{"operation", operation, "outcome", outcome}
+	if validClient(client) {
+		attrs = append(attrs, "client", client)
+	}
+	if err != nil {
+		s.logger.Warn("auth outcome", attrs...)
+		return
+	}
+	s.logger.Info("auth outcome", attrs...)
+}
+
+func authErrorCategory(err error) string {
+	switch {
+	case errors.Is(err, ErrAuthenticationFailed):
+		return "authentication_failed"
+	case errors.Is(err, ErrClientForbidden):
+		return "forbidden"
+	case errors.Is(err, ErrRateLimited):
+		return "rate_limited"
+	case errors.Is(err, ErrRateLimiterUnavailable),
+		errors.Is(err, ErrFirebaseUnavailable),
+		errors.Is(err, ErrSessionUnavailable):
+		return "dependency_unavailable"
+	case errors.Is(err, ErrIdentityLinkRequired):
+		return "identity_link_required"
+	case errors.Is(err, ErrIdentityConflict):
+		return "identity_conflict"
+	case errors.Is(err, ErrLastIdentity):
+		return "last_identity"
+	case errors.Is(err, ErrIdentityNotFound):
+		return "identity_not_found"
+	default:
+		return "error"
+	}
 }
 
 func normalizeClient(client string) (string, error) {

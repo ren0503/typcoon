@@ -47,6 +47,56 @@ func TestMemoryRateLimiterFixedWindow(t *testing.T) {
 	}
 }
 
+func TestRateLimitsWithDefaultsMatchDocumentedMinimums(t *testing.T) {
+	defaults := RateLimits{}.withDefaults()
+	if defaults.ExchangeIPPerMin != 10 ||
+		defaults.ExchangeIdentityPerMin != 30 ||
+		defaults.RefreshIPPerMin != 60 ||
+		defaults.RefreshSessionPerMin != 30 ||
+		defaults.LinkAccountPerMin != 10 ||
+		defaults.LogoutAllAccountPerMin != 5 {
+		t.Fatalf("documented rate-limit defaults = %+v", defaults)
+	}
+}
+
+func TestMemoryAndRedisRateLimitersHaveParity(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	redisLimiter, err := NewRedisRateLimiter(client, "tycoon:parity:")
+	if err != nil {
+		t.Fatalf("NewRedisRateLimiter: %v", err)
+	}
+	clock := &fixedClock{now: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
+	memoryLimiter := NewMemoryRateLimiter(clock)
+	ctx := context.Background()
+
+	keys := []string{"exchange:ip:192.0.2.1", "exchange:identity:uid-1", "refresh:ip:192.0.2.2"}
+	for _, key := range keys {
+		for i := 0; i < 3; i++ {
+			memoryDecision, err := memoryLimiter.Allow(ctx, key, 2, time.Minute)
+			if err != nil {
+				t.Fatalf("memory Allow %s %d: %v", key, i, err)
+			}
+			redisDecision, err := redisLimiter.Allow(ctx, key, 2, time.Minute)
+			if err != nil {
+				t.Fatalf("redis Allow %s %d: %v", key, i, err)
+			}
+			if memoryDecision.Allowed != redisDecision.Allowed {
+				t.Fatalf("parity %s %d: memory allowed=%v redis allowed=%v", key, i, memoryDecision.Allowed, redisDecision.Allowed)
+			}
+			if memoryDecision.Allowed && memoryDecision.Remaining != redisDecision.Remaining {
+				t.Fatalf("parity %s %d: memory remaining=%d redis remaining=%d", key, i, memoryDecision.Remaining, redisDecision.Remaining)
+			}
+			if !memoryDecision.Allowed {
+				if memoryDecision.RetryAfter <= 0 || redisDecision.RetryAfter <= 0 {
+					t.Fatalf("parity %s %d retry-after memory=%v redis=%v", key, i, memoryDecision.RetryAfter, redisDecision.RetryAfter)
+				}
+			}
+		}
+	}
+}
+
 func TestRedisRateLimiterSharedAndFailsClosed(t *testing.T) {
 	mr := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})

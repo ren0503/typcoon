@@ -14,13 +14,23 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
-const signingAlgorithm = "RS256"
+const (
+	signingAlgorithm = "RS256"
+
+	// RecommendedSigningKeyOverlap is the recommended rotation overlap. Retain a
+	// retired public key for at least the access-token lifetime (15m) and
+	// preferably 24 hours so unexpired tokens keep verifying.
+	RecommendedSigningKeyOverlap = 24 * time.Hour
+
+	defaultKMSOperationTimeout = 5 * time.Second
+)
 
 // Signer issues RS256 signatures and exposes the matching public key.
 type Signer interface {
@@ -200,6 +210,7 @@ type KMSSigner struct {
 	kid       string
 	keyARN    string
 	publicKey *rsa.PublicKey
+	timeout   time.Duration
 }
 
 // NewKMSSigner resolves the public key and returns a KMS-backed signer.
@@ -210,7 +221,7 @@ func NewKMSSigner(ctx context.Context, client KMSClient, kid, keyARN string) (*K
 	if kid == "" || keyARN == "" {
 		return nil, errors.New("KMS kid and key ARN are required")
 	}
-	signer := &KMSSigner{client: client, kid: kid, keyARN: keyARN}
+	signer := &KMSSigner{client: client, kid: kid, keyARN: keyARN, timeout: defaultKMSOperationTimeout}
 	if err := signer.loadPublicKey(ctx); err != nil {
 		return nil, err
 	}
@@ -218,7 +229,9 @@ func NewKMSSigner(ctx context.Context, client KMSClient, kid, keyARN string) (*K
 }
 
 func (s *KMSSigner) loadPublicKey(ctx context.Context) error {
-	output, err := s.client.GetPublicKey(ctx, &kms.GetPublicKeyInput{KeyId: aws.String(s.keyARN)})
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	output, err := s.client.GetPublicKey(callCtx, &kms.GetPublicKeyInput{KeyId: aws.String(s.keyARN)})
 	if err != nil {
 		return fmt.Errorf("get KMS public key: %w", err)
 	}
@@ -264,7 +277,9 @@ func (s *KMSSigner) SignJWT(ctx context.Context, signingInput []byte) ([]byte, e
 }
 
 func (s *KMSSigner) signDigest(ctx context.Context, digest []byte) ([]byte, error) {
-	output, err := s.client.Sign(ctx, &kms.SignInput{
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	output, err := s.client.Sign(callCtx, &kms.SignInput{
 		KeyId:            aws.String(s.keyARN),
 		Message:          digest,
 		MessageType:      types.MessageTypeDigest,

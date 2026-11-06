@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/ren0503/tycoon/internal/app"
 	"github.com/ren0503/tycoon/internal/auth"
 	"github.com/ren0503/tycoon/internal/testutil"
@@ -108,4 +110,81 @@ func TestSensitiveValuesNeverAppearInResponsesOrLogs(t *testing.T) {
 		t.Fatalf("pin stored without hashing: %q", storedHash)
 	}
 	_ = guestID
+}
+
+func TestAuthTokensNeverAppearInResponsesOrLogs(t *testing.T) {
+	h := testutil.StartPostgres(t)
+	const firebaseToken = "firebase-id-token-integration-secret"
+	const email = "redact-auth@example.com"
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	clock := testutil.NewFakeClock(time.Now().UTC())
+	_, keys := testutil.NewTestKeySet(t, "redact-kid")
+	service, err := auth.NewService(auth.ServiceOptions{
+		Store:      auth.NewStore(h.Pool),
+		Verifier:   &testutil.FakeVerifier{Identities: map[string]auth.VerifiedIdentity{firebaseToken: {UID: "redact-auth-uid", Email: email, EmailVerified: true}}},
+		Keys:       keys,
+		Limiter:    &testutil.FakeRateLimiter{},
+		Clock:      clock,
+		Audit:      &testutil.AuditRecorder{},
+		Logger:     logger,
+		Issuer:     "redact-issuer",
+		Audience:   "redact-audience",
+		AccessTTL:  15 * time.Minute,
+		RefreshTTL: 720 * time.Hour,
+		ClockSkew:  time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	router := NewRouter(RouterConfig{
+		Logger: logger,
+		DB:     contractPinger{},
+		PublicAPIRoutes: func(r chi.Router) {
+			auth.RegisterPublicRoutes(r, service)
+		},
+	})
+
+	payload, err := json.Marshal(map[string]string{"firebase_id_token": firebaseToken, "client": "guest_mobile"})
+	if err != nil {
+		t.Fatalf("marshal exchange: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/auth/firebase/exchange", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("exchange status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("exchange Cache-Control = %q", got)
+	}
+	if strings.Contains(rec.Body.String(), firebaseToken) {
+		t.Fatal("exchange response leaked the Firebase ID Token")
+	}
+	var session struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &session); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	for _, secret := range []string{firebaseToken, session.AccessToken, session.RefreshToken, email} {
+		if secret == "" {
+			continue
+		}
+		if strings.Contains(logs.String(), secret) {
+			t.Fatalf("logs leaked %q: %s", secret, logs.String())
+		}
+	}
+
+	jwksReq := httptest.NewRequest(http.MethodGet, "/v1/auth/jwks", nil)
+	jwksRec := httptest.NewRecorder()
+	router.ServeHTTP(jwksRec, jwksReq)
+	if jwksRec.Code != http.StatusOK {
+		t.Fatalf("jwks status = %d body=%s", jwksRec.Code, jwksRec.Body.String())
+	}
+	if strings.Contains(jwksRec.Body.String(), `"d"`) || strings.Contains(jwksRec.Body.String(), `"p"`) {
+		t.Fatalf("JWKS leaked private material: %s", jwksRec.Body.String())
+	}
 }

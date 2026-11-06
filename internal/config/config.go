@@ -296,6 +296,14 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+const maxAccessTokenTTL = 15 * time.Minute
+
+type rateLimitMinimum struct {
+	name  string
+	value int
+	min   int
+}
+
 // Validate checks required values, formats, ranges, and cross-field constraints.
 func (c *Config) Validate() error {
 	if err := validate.Struct(c); err != nil {
@@ -310,6 +318,68 @@ func (c *Config) Validate() error {
 		}
 		if len(c.Auth.DevPrincipals) == 0 {
 			return errors.New("invalid configuration: AUTH_MODE=dev requires a non-empty AUTH_DEV_PRINCIPALS allowlist")
+		}
+	}
+	if err := c.validateAuth(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Config) validateAuth() error {
+	if c.Auth.Token.AccessTTL > maxAccessTokenTTL {
+		return errors.New("invalid configuration: AUTH_ACCESS_TTL must not exceed 15m")
+	}
+	if c.AppEnv != "production" && c.AppEnv != "staging" {
+		return nil
+	}
+	if strings.TrimSpace(c.Auth.Token.Issuer) == "" {
+		return errors.New("invalid configuration: AUTH_TOKEN_ISSUER is required in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.Token.Audience) == "" {
+		return errors.New("invalid configuration: AUTH_TOKEN_AUDIENCE is required in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.Firebase.ProjectID) == "" {
+		return errors.New("invalid configuration: AUTH_FIREBASE_PROJECT_ID is required in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.Firebase.CredentialsFile) == "" {
+		return errors.New("invalid configuration: AUTH_FIREBASE_CREDENTIALS_FILE is required in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.Firebase.EmulatorHost) != "" {
+		return errors.New("invalid configuration: FIREBASE_AUTH_EMULATOR_HOST must not be set in production/staging")
+	}
+	if c.Auth.Signing.Mode != "kms" {
+		return errors.New("invalid configuration: AUTH_SIGNING_MODE must be kms in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.Signing.LocalKeyFile) != "" {
+		return errors.New("invalid configuration: AUTH_SIGNING_LOCAL_KEY_FILE must not be set in production/staging")
+	}
+	if len(c.Auth.Signing.KMSKeys) == 0 {
+		return errors.New("invalid configuration: AUTH_SIGNING_KMS_KEYS is required in production/staging")
+	}
+	if _, ok := c.Auth.Signing.KMSKeys[c.Auth.Signing.ActiveKID]; !ok {
+		return errors.New("invalid configuration: AUTH_SIGNING_ACTIVE_KID must reference a configured AUTH_SIGNING_KMS_KEYS entry")
+	}
+	if c.Auth.RateLimit.Backend != "redis" {
+		return errors.New("invalid configuration: AUTH_RATE_LIMIT_BACKEND must be redis in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.RateLimit.RedisURL) == "" {
+		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_URL is required in production/staging")
+	}
+	if strings.TrimSpace(c.Auth.RateLimit.RedisPrefix) == "" {
+		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_PREFIX is required in production/staging")
+	}
+	minimums := []rateLimitMinimum{
+		{"AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN", c.Auth.RateLimit.ExchangeIPPerMin, 10},
+		{"AUTH_RATE_LIMIT_EXCHANGE_IDENTITY_PER_MIN", c.Auth.RateLimit.ExchangeIdentityPerMin, 30},
+		{"AUTH_RATE_LIMIT_REFRESH_IP_PER_MIN", c.Auth.RateLimit.RefreshIPPerMin, 60},
+		{"AUTH_RATE_LIMIT_REFRESH_SESSION_PER_MIN", c.Auth.RateLimit.RefreshSessionPerMin, 30},
+		{"AUTH_RATE_LIMIT_LINK_ACCOUNT_PER_MIN", c.Auth.RateLimit.LinkAccountPerMin, 10},
+		{"AUTH_RATE_LIMIT_LOGOUT_ALL_ACCOUNT_PER_MIN", c.Auth.RateLimit.LogoutAllAccountPerMin, 5},
+	}
+	for _, minimum := range minimums {
+		if minimum.value < minimum.min {
+			return fmt.Errorf("invalid configuration: %s must be at least %d in production/staging", minimum.name, minimum.min)
 		}
 	}
 	return nil

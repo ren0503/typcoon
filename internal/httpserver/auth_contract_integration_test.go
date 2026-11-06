@@ -45,6 +45,8 @@ type exchangeContractService struct {
 	logoutAllErr     error
 	linkErr          error
 	unlinkErr        error
+	jwksKeys         []auth.JWK
+	jwksErr          error
 }
 
 func (s *exchangeContractService) Exchange(context.Context, auth.ExchangeInput) (auth.IssuedSession, error) {
@@ -98,6 +100,13 @@ func (s *exchangeContractService) UnlinkIdentity(_ context.Context, accountID, i
 	s.unlinkAccount = accountID
 	s.unlinkIdentityID = identityID
 	return s.unlinkErr
+}
+
+func (s *exchangeContractService) JWKS(context.Context) ([]auth.JWK, error) {
+	if s.jwksErr != nil {
+		return nil, s.jwksErr
+	}
+	return s.jwksKeys, nil
 }
 
 func contractSession() auth.IssuedSession {
@@ -652,5 +661,78 @@ func TestRefreshContract(t *testing.T) {
 				Request: specReq, PathParams: pathParams, Route: route,
 			})
 		})
+	}
+}
+
+func TestJWKSContract(t *testing.T) {
+	loader := openapi3.NewLoader()
+	doc, err := loader.LoadFromFile("../../openapi/openapi.yaml")
+	if err != nil {
+		t.Fatalf("load openapi: %v", err)
+	}
+	if err := doc.Validate(loader.Context); err != nil {
+		t.Fatalf("openapi is invalid: %v", err)
+	}
+	specRouter, err := gorillamux.NewRouter(doc)
+	if err != nil {
+		t.Fatalf("spec router: %v", err)
+	}
+
+	service := &exchangeContractService{jwksKeys: []auth.JWK{{
+		Kty: "RSA",
+		KID: "active-key",
+		Use: "sig",
+		Alg: "RS256",
+		N:   "cHVibGljLW1vZHVsdXM",
+		E:   "AQAB",
+	}}}
+	router := NewRouter(RouterConfig{
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		DB:     contractPinger{},
+		PublicAPIRoutes: func(r chi.Router) {
+			auth.RegisterPublicRoutes(r, service)
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/auth/jwks", nil)
+	specReq := req.Clone(req.Context())
+	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+	route, pathParams, err := specRouter.FindRoute(specReq)
+	if err != nil {
+		t.Fatalf("jwks route not found in spec: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("jwks status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "public") {
+		t.Fatalf("jwks Cache-Control = %q, want public cache", got)
+	}
+	if err := openapi3filter.ValidateResponse(context.Background(), &openapi3filter.ResponseValidationInput{
+		RequestValidationInput: &openapi3filter.RequestValidationInput{Request: specReq, PathParams: pathParams, Route: route},
+		Status:                 rec.Code,
+		Header:                 rec.Header(),
+		Body:                   io.NopCloser(bytes.NewReader(rec.Body.Bytes())),
+	}); err != nil {
+		t.Fatalf("jwks response violates spec: %v", err)
+	}
+
+	service.jwksErr = auth.ErrSessionUnavailable
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unavailable jwks status = %d, want 503", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got == "" {
+		t.Fatal("unavailable jwks missing Retry-After")
+	}
+	if err := openapi3filter.ValidateResponse(context.Background(), &openapi3filter.ResponseValidationInput{
+		RequestValidationInput: &openapi3filter.RequestValidationInput{Request: specReq, PathParams: pathParams, Route: route},
+		Status:                 rec.Code,
+		Header:                 rec.Header(),
+		Body:                   io.NopCloser(bytes.NewReader(rec.Body.Bytes())),
+	}); err != nil {
+		t.Fatalf("unavailable jwks response violates spec: %v", err)
 	}
 }

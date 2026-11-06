@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -76,6 +78,8 @@ const (
 	defaultRefreshSessionPerMin   = 30
 	defaultLinkAccountPerMin      = 10
 	defaultLogoutAllAccountPerMin = 5
+
+	defaultAuthOperationTimeout = 10 * time.Second
 )
 
 func (r RateLimits) withDefaults() RateLimits {
@@ -102,18 +106,20 @@ func (r RateLimits) withDefaults() RateLimits {
 
 // ServiceOptions supplies all auth orchestration dependencies.
 type ServiceOptions struct {
-	Store      *Store
-	Verifier   Verifier
-	Keys       KeySet
-	Limiter    RateLimiter
-	Clock      Clock
-	Audit      audit.Appender
-	Issuer     string
-	Audience   string
-	AccessTTL  time.Duration
-	RefreshTTL time.Duration
-	ClockSkew  time.Duration
-	RateLimits RateLimits
+	Store            *Store
+	Verifier         Verifier
+	Keys             KeySet
+	Limiter          RateLimiter
+	Clock            Clock
+	Audit            audit.Appender
+	Logger           *slog.Logger
+	Issuer           string
+	Audience         string
+	AccessTTL        time.Duration
+	RefreshTTL       time.Duration
+	ClockSkew        time.Duration
+	OperationTimeout time.Duration
+	RateLimits       RateLimits
 }
 
 type service struct {
@@ -123,8 +129,10 @@ type service struct {
 	limiter    RateLimiter
 	clock      Clock
 	audit      audit.Appender
+	logger     *slog.Logger
 	tokens     *AccessTokenIssuer
 	refreshTTL time.Duration
+	timeout    time.Duration
 	rateLimits RateLimits
 }
 
@@ -159,6 +167,14 @@ func newService(options ServiceOptions, store serviceStore) (Service, error) {
 	if clock == nil {
 		clock = SystemClock{}
 	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	timeout := options.OperationTimeout
+	if timeout <= 0 {
+		timeout = defaultAuthOperationTimeout
+	}
 	tokens, err := NewAccessTokenIssuer(
 		options.Keys,
 		options.Issuer,
@@ -177,14 +193,23 @@ func newService(options ServiceOptions, store serviceStore) (Service, error) {
 		limiter:    options.Limiter,
 		clock:      clock,
 		audit:      options.Audit,
+		logger:     logger,
 		tokens:     tokens,
 		refreshTTL: options.RefreshTTL,
+		timeout:    timeout,
 		rateLimits: options.RateLimits.withDefaults(),
 	}, nil
 }
 
-func (s *service) JWKS(context.Context) ([]JWK, error) {
-	return nil, ErrAuthNotImplemented
+func (s *service) JWKS(ctx context.Context) (keys []JWK, err error) {
+	ctx, cancel := s.operationContext(ctx)
+	defer cancel()
+	defer func() { s.logOperation("jwks", "", err) }()
+	keys, err = s.keys.PublicJWKS(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
+	}
+	return keys, nil
 }
 
 var _ Service = (*service)(nil)

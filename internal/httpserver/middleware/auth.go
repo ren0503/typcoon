@@ -17,8 +17,10 @@ func Authenticate(provider auth.Provider, logger *slog.Logger) func(http.Handler
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			principal, err := provider.Authenticate(r)
 			if err != nil {
-				if !errors.Is(err, auth.ErrUnauthenticated) {
-					logger.Warn("principal resolution failed", "error", err)
+				if errors.Is(err, auth.ErrUnauthenticated) {
+					logger.Info("auth outcome", "operation", "authenticate", "outcome", "unauthenticated")
+				} else {
+					logger.Warn("auth outcome", "operation", "authenticate", "outcome", "dependency_unavailable")
 				}
 				httpx.WriteError(w, r, apperrors.Unauthorized("Authentication is required."))
 				return

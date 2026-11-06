@@ -7,6 +7,13 @@ import (
 	"github.com/google/uuid"
 )
 
+const jwksCacheControl = "public, max-age=300"
+
+// jwksResponse is the public JSON Web Key Set response.
+type jwksResponse struct {
+	Keys []JWK `json:"keys"`
+}
+
 // FirebaseExchangeRequest is the public exchange payload.
 type FirebaseExchangeRequest struct {
 	IDToken string `json:"firebase_id_token" validate:"required"`

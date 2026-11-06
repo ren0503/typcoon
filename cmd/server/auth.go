@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	aws "github.com/aws/aws-sdk-go-v2/aws"
@@ -55,6 +56,7 @@ func buildAuthService(
 		Limiter:    limiter,
 		Clock:      clock,
 		Audit:      audit.NewStore(pool, logger),
+		Logger:     logger,
 		Issuer:     cfg.Auth.Token.Issuer,
 		Audience:   cfg.Auth.Token.Audience,
 		AccessTTL:  cfg.Auth.Token.AccessTTL,
@@ -104,9 +106,14 @@ func buildKeySet(ctx context.Context, cfg *config.Config, awsCfg aws.Config) (au
 			return nil, errors.New("AUTH_SIGNING_KMS_KEYS is required for KMS signing")
 		}
 		client := kms.NewFromConfig(awsCfg)
+		kids := make([]string, 0, len(signing.KMSKeys))
+		for kid := range signing.KMSKeys {
+			kids = append(kids, kid)
+		}
+		sort.Strings(kids)
 		signers := make([]auth.Signer, 0, len(signing.KMSKeys))
-		for kid, keyARN := range signing.KMSKeys {
-			signer, err := auth.NewKMSSigner(ctx, client, kid, keyARN)
+		for _, kid := range kids {
+			signer, err := auth.NewKMSSigner(ctx, client, kid, signing.KMSKeys[kid])
 			if err != nil {
 				return nil, fmt.Errorf("load KMS signer %q: %w", kid, err)
 			}
@@ -130,14 +137,18 @@ func buildRateLimiter(ctx context.Context, cfg *config.Config) (auth.RateLimiter
 		if err != nil {
 			return nil, nil, fmt.Errorf("parse Redis rate-limit URL: %w", err)
 		}
+		const redisTimeout = 2 * time.Second
+		options.DialTimeout = redisTimeout
+		options.ReadTimeout = redisTimeout
+		options.WriteTimeout = redisTimeout
 		client := redis.NewClient(options)
-		pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		pingCtx, cancel := context.WithTimeout(ctx, redisTimeout)
 		defer cancel()
 		if err := client.Ping(pingCtx).Err(); err != nil {
 			_ = client.Close()
 			return nil, nil, fmt.Errorf("connect Redis rate limiter: %w", err)
 		}
-		limiter, err := auth.NewRedisRateLimiter(client, cfg.Auth.RateLimit.RedisPrefix)
+		limiter, err := auth.NewRedisRateLimiterWithTimeout(client, cfg.Auth.RateLimit.RedisPrefix, redisTimeout)
 		if err != nil {
 			_ = client.Close()
 			return nil, nil, err

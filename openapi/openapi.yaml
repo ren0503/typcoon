@@ -261,6 +261,21 @@ paths:
         409: {$ref: '#/components/responses/Conflict'}
         429: {$ref: '#/components/responses/RateLimited'}
         503: {$ref: '#/components/responses/AuthUnavailable'}
+  /auth/jwks:
+    get:
+      tags: [auth]
+      summary: Publish the backend access-token verification keys
+      description: Returns only RSA public parameters for active and retained signing keys. Responses are publicly cacheable; private key material is never exposed. Retain retired public keys for at least the access-token lifetime (15 minutes) and preferably 24 hours during rotation.
+      security: []
+      responses:
+        200:
+          description: Public JWKS containing verification keys only.
+          headers:
+            Cache-Control: {$ref: '#/components/headers/PublicCache'}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/JWKS'}
+        503: {$ref: '#/components/responses/AuthUnavailable'}
 
 components:
   securitySchemes:
@@ -272,6 +287,9 @@ components:
     RetryAfter:
       description: Seconds until the caller may retry.
       schema: {type: integer, minimum: 1, example: 30}
+    PublicCache:
+      description: Publicly cacheable verification material.
+      schema: {type: string, example: 'public, max-age=300'}
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     ShipId: {name: shipId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -425,6 +443,23 @@ components:
         expires_in: {type: integer, minimum: 1, maximum: 900, description: Access-token lifetime in seconds}
         refresh_token: {type: string, description: Returned only in this body; never in a URL}
         session: {$ref: '#/components/schemas/Session'}
+    JWK:
+      type: object
+      required: [kty, kid, use, alg, n, e]
+      properties:
+        kty: {type: string, enum: [RSA]}
+        kid: {type: string}
+        use: {type: string, enum: [sig]}
+        alg: {type: string, enum: [RS256]}
+        n: {type: string, description: Base64url-encoded RSA modulus}
+        e: {type: string, description: Base64url-encoded RSA exponent}
+    JWKS:
+      type: object
+      required: [keys]
+      properties:
+        keys:
+          type: array
+          items: {$ref: '#/components/schemas/JWK'}
   responses:
     TokenResponse:
       description: Backend session issued. The body and headers must not be cached.

@@ -13,7 +13,8 @@ import (
 // ErrRateLimiterUnavailable indicates fail-closed limiter behavior.
 var ErrRateLimiterUnavailable = errors.New("rate limiter unavailable")
 
-const redisFixedWindowScript = `
+const (
+	redisFixedWindowScript = `
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
   redis.call('PEXPIRE', KEYS[1], ARGV[1])
@@ -21,6 +22,8 @@ end
 local ttl = redis.call('PTTL', KEYS[1])
 return {current, ttl}
 `
+	defaultRedisRateLimitTimeout = 2 * time.Second
+)
 
 // RateLimitDecision describes the outcome of one rate-limit check.
 type RateLimitDecision struct {
@@ -85,19 +88,28 @@ func (l *MemoryRateLimiter) Allow(_ context.Context, key string, limit int, wind
 
 // RedisRateLimiter uses Redis atomic fixed-window counters shared by instances.
 type RedisRateLimiter struct {
-	client redis.Cmdable
-	prefix string
+	client  redis.Cmdable
+	prefix  string
+	timeout time.Duration
 }
 
 // NewRedisRateLimiter builds a shared limiter. The prefix namespaces all keys.
 func NewRedisRateLimiter(client redis.Cmdable, prefix string) (*RedisRateLimiter, error) {
+	return NewRedisRateLimiterWithTimeout(client, prefix, defaultRedisRateLimitTimeout)
+}
+
+// NewRedisRateLimiterWithTimeout builds a shared limiter with a bounded Redis call timeout.
+func NewRedisRateLimiterWithTimeout(client redis.Cmdable, prefix string, timeout time.Duration) (*RedisRateLimiter, error) {
 	if client == nil {
 		return nil, errors.New("redis client is required")
 	}
 	if prefix == "" {
 		return nil, errors.New("redis rate-limit prefix is required")
 	}
-	return &RedisRateLimiter{client: client, prefix: prefix}, nil
+	if timeout <= 0 {
+		timeout = defaultRedisRateLimitTimeout
+	}
+	return &RedisRateLimiter{client: client, prefix: prefix, timeout: timeout}, nil
 }
 
 // Allow increments the shared fixed-window counter, failing closed on Redis errors.
@@ -105,8 +117,10 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 	if key == "" || limit <= 0 || window <= 0 {
 		return RateLimitDecision{}, errors.New("invalid rate-limit key, limit, or window")
 	}
+	callCtx, cancel := context.WithTimeout(ctx, l.timeout)
+	defer cancel()
 	redisKey := l.prefix + key
-	result, err := l.client.Eval(ctx, redisFixedWindowScript, []string{redisKey}, window.Milliseconds()).Result()
+	result, err := l.client.Eval(callCtx, redisFixedWindowScript, []string{redisKey}, window.Milliseconds()).Result()
 	if err != nil {
 		return RateLimitDecision{}, fmt.Errorf("%w: %v", ErrRateLimiterUnavailable, err)
 	}

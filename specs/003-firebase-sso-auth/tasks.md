@@ -187,19 +187,19 @@
 
 ### Tests for User Story 6
 
-- [ ] T060 [P] [US6] Extend `internal/config/config_test.go` for production missing Firebase/KMS/Redis, emulator/local-key rejection, access TTL above 15 minutes, clock skew default `60s`, rate-limit values below documented minimums, and valid development/test defaults.
-- [ ] T061 [P] [US6] Extend `internal/auth/ratelimit_test.go` for Redis/memory parity, exact default thresholds, shared counters across two limiter instances, `Retry-After`, and fail-closed errors when Redis is unavailable.
-- [ ] T062 [P] [US6] Add signing/JWKS tests in `internal/auth/signing_test.go` and `internal/auth/handlers_test.go` for public-only JWK fields, active/retired key sets, new-token `kid`, and old-token verification during overlap.
-- [ ] T063 [P] [US6] Add response/log redaction tests in `internal/httpserver/sensitive_redaction_integration_test.go` and `internal/auth/service_test.go` asserting no Firebase ID Token, access token, refresh token, hash, signing secret, or unnecessary personal data appears in logs/errors.
+- [X] T060 [P] [US6] Extend `internal/config/config_test.go` for production missing Firebase/KMS/Redis, emulator/local-key rejection, access TTL above 15 minutes, clock skew default `60s`, rate-limit values below documented minimums, and valid development/test defaults.
+- [X] T061 [P] [US6] Extend `internal/auth/ratelimit_test.go` for Redis/memory parity, exact default thresholds, shared counters across two limiter instances, `Retry-After`, and fail-closed errors when Redis is unavailable.
+- [X] T062 [P] [US6] Add signing/JWKS tests in `internal/auth/signing_test.go` and `internal/auth/handlers_test.go` for public-only JWK fields, active/retired key sets, new-token `kid`, and old-token verification during overlap.
+- [X] T063 [P] [US6] Add response/log redaction tests in `internal/httpserver/sensitive_redaction_integration_test.go` and `internal/auth/service_test.go` asserting no Firebase ID Token, access token, refresh token, hash, signing secret, or unnecessary personal data appears in logs/errors.
 
 ### Implementation for User Story 6
 
-- [ ] T064 [US6] Complete production/staging validation in `internal/config/config.go`: require Firebase project/credentials, KMS signing and active KID, issuer/audience, Redis limiter, and defaults no weaker than exchange 10/min/IP + 30/min/identity, refresh 60/min/IP + 30/min/session, link/unlink 10/min/account, logout-all 5/min/account; reject emulator/local key/access TTL >15m.
-- [ ] T065 [US6] Implement the public `GET /v1/auth/jwks` handler and route in `internal/auth/handlers.go` with public cache headers and `KeySet` output containing only RSA public parameters.
-- [ ] T066 [US6] Implement configured active/retired KMS key handling and JWKS rotation behavior in `internal/auth/signing.go`; document the minimum overlap as the access-token lifetime and recommend 24 hours.
-- [ ] T067 [US6] Wire Redis limiter selection, bounded timeouts, and fail-closed `503 auth_unavailable` behavior in `cmd/server/main.go`, `internal/auth/ratelimit.go`, and `internal/auth/handlers.go`.
-- [ ] T068 [US6] Add bounded Firebase/KMS/Redis/DB timeouts and outcome-category logging/metrics in `internal/auth/service.go`, `internal/auth/firebase.go`, `internal/auth/signing.go`, and `internal/httpserver/middleware/auth.go` without token or credential values.
-- [ ] T069 [US6] Add JWKS and complete `429`/`503` documentation to `openapi/openapi.yaml`, including `Retry-After` on throttling/unavailability.
+- [X] T064 [US6] Complete production/staging validation in `internal/config/config.go`: require Firebase project/credentials, KMS signing and active KID, issuer/audience, Redis limiter, and defaults no weaker than exchange 10/min/IP + 30/min/identity, refresh 60/min/IP + 30/min/session, link/unlink 10/min/account, logout-all 5/min/account; reject emulator/local key/access TTL >15m.
+- [X] T065 [US6] Implement the public `GET /v1/auth/jwks` handler and route in `internal/auth/handlers.go` with public cache headers and `KeySet` output containing only RSA public parameters.
+- [X] T066 [US6] Implement configured active/retired KMS key handling and JWKS rotation behavior in `internal/auth/signing.go`; document the minimum overlap as the access-token lifetime and recommend 24 hours.
+- [X] T067 [US6] Wire Redis limiter selection, bounded timeouts, and fail-closed `503 auth_unavailable` behavior in `cmd/server/main.go`, `internal/auth/ratelimit.go`, and `internal/auth/handlers.go`.
+- [X] T068 [US6] Add bounded Firebase/KMS/Redis/DB timeouts and outcome-category logging/metrics in `internal/auth/service.go`, `internal/auth/firebase.go`, `internal/auth/signing.go`, and `internal/httpserver/middleware/auth.go` without token or credential values.
+- [X] T069 [US6] Add JWKS and complete `429`/`503` documentation to `openapi/openapi.yaml`, including `Retry-After` on throttling/unavailability.
 
 **Checkpoint**: Auth is deployable with production configuration, rotation, redis-backed throttling, and safe observability.
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -464,5 +465,57 @@ func TestExchangeAppliesIPLimitBeforeVerification(t *testing.T) {
 	}
 	if f.store.provisionCalls != 0 || f.store.sessionCalls != 0 {
 		t.Fatalf("store was called after rate limit: provision=%d session=%d", f.store.provisionCalls, f.store.sessionCalls)
+	}
+}
+
+func TestAuthOutcomesNeverLogOrExposeTokenMaterial(t *testing.T) {
+	const firebaseToken = "firebase-id-token-secret"
+	const verifiedEmail = "private-guest@example.com"
+	var logs bytes.Buffer
+	f := newAuthFixture(t, &unitVerifier{
+		identities: map[string]VerifiedIdentity{
+			firebaseToken: {UID: "redact-uid", Email: verifiedEmail, EmailVerified: true, DisplayName: "Private Guest"},
+		},
+	}, nil)
+	f.service.(*service).logger = slog.New(slog.NewTextHandler(&logs, nil))
+
+	session, err := runExchange(t, f, ExchangeInput{IDToken: firebaseToken})
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	secrets := []string{firebaseToken, session.AccessToken, session.RefreshToken, verifiedEmail}
+	for _, secret := range secrets {
+		if secret == "" {
+			continue
+		}
+		if strings.Contains(logs.String(), secret) {
+			t.Fatalf("logs leaked %q: %s", secret, logs.String())
+		}
+	}
+	auditEntries := append(append([]audit.Entry{}, f.store.provisionAudit...), f.store.sessionAudit...)
+	if len(auditEntries) == 0 {
+		t.Fatal("expected audit entries")
+	}
+	for _, entry := range auditEntries {
+		details := string(entry.Details)
+		for _, secret := range secrets {
+			if secret == "" {
+				continue
+			}
+			if strings.Contains(details, secret) {
+				t.Fatalf("audit details leaked %q: %s", secret, details)
+			}
+		}
+	}
+
+	_, err = f.service.Exchange(context.Background(), ExchangeInput{IDToken: "invalid-token-value", IPAddress: "192.0.2.30"})
+	if !errors.Is(err, ErrAuthenticationFailed) {
+		t.Fatalf("invalid exchange error = %v, want generic authentication failure", err)
+	}
+	if strings.Contains(err.Error(), "invalid-token-value") {
+		t.Fatalf("error leaked the Firebase ID Token: %v", err)
+	}
+	if strings.Contains(logs.String(), "invalid-token-value") {
+		t.Fatalf("logs leaked the Firebase ID Token: %s", logs.String())
 	}
 }
