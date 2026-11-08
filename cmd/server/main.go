@@ -47,12 +47,12 @@ func run() error {
 		return err
 	}
 
-	authService, jwtProvider, closeAuth, err := buildAuthService(ctx, cfg, db, logger, awsCfg)
+	authService, jwtProvider, err := buildAuthService(ctx, cfg, db, logger, awsCfg)
 	if err != nil {
 		db.Close()
 		return err
 	}
-	defer closeAuth()
+	defer authService.Close()
 
 	provider, err := authProvider(cfg, jwtProvider)
 	if err != nil {

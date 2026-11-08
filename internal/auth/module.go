@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 
 	"github.com/ren0503/tycoon/internal/audit"
 )
@@ -21,6 +23,18 @@ type ExchangeInput struct {
 	Client    string
 	UserAgent string
 	IPAddress string
+}
+
+func (e ExchangeInput) Valid() error {
+	if e.Client != "" && (e.Client != ClientGuestMobile && e.Client != ClientFleetConsole) {
+		return ErrClientForbidden
+	}
+
+	if strings.TrimSpace(e.IDToken) == "" {
+		return ErrAuthenticationFailed
+	}
+
+	return nil
 }
 
 // RefreshInput is one refresh-token rotation request.
@@ -59,6 +73,7 @@ type Service interface {
 	LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken string) (Identity, error)
 	UnlinkIdentity(ctx context.Context, accountID, identityID uuid.UUID) error
 	JWKS(ctx context.Context) ([]JWK, error)
+	Close() error
 }
 
 // RateLimits holds the documented per-minute authentication limits.
@@ -83,43 +98,30 @@ const (
 )
 
 func (r RateLimits) withDefaults() RateLimits {
-	if r.ExchangeIPPerMin <= 0 {
-		r.ExchangeIPPerMin = defaultExchangeIPPerMin
-	}
-	if r.ExchangeIdentityPerMin <= 0 {
-		r.ExchangeIdentityPerMin = defaultExchangeIdentityPerMin
-	}
-	if r.RefreshIPPerMin <= 0 {
-		r.RefreshIPPerMin = defaultRefreshIPPerMin
-	}
-	if r.RefreshSessionPerMin <= 0 {
-		r.RefreshSessionPerMin = defaultRefreshSessionPerMin
-	}
-	if r.LinkAccountPerMin <= 0 {
-		r.LinkAccountPerMin = defaultLinkAccountPerMin
-	}
-	if r.LogoutAllAccountPerMin <= 0 {
-		r.LogoutAllAccountPerMin = defaultLogoutAllAccountPerMin
-	}
+	r.ExchangeIPPerMin = lo.CoalesceOrEmpty(r.ExchangeIPPerMin, defaultExchangeIPPerMin)
+	r.ExchangeIdentityPerMin = lo.CoalesceOrEmpty(r.ExchangeIdentityPerMin, defaultExchangeIdentityPerMin)
+	r.RefreshIPPerMin = lo.CoalesceOrEmpty(r.RefreshIPPerMin, defaultRefreshIPPerMin)
+	r.RefreshSessionPerMin = lo.CoalesceOrEmpty(r.RefreshSessionPerMin, defaultRefreshSessionPerMin)
+	r.LinkAccountPerMin = lo.CoalesceOrEmpty(r.LinkAccountPerMin, defaultLinkAccountPerMin)
+	r.LogoutAllAccountPerMin = lo.CoalesceOrEmpty(r.LogoutAllAccountPerMin, defaultLogoutAllAccountPerMin)
 	return r
 }
 
 // ServiceOptions supplies all auth orchestration dependencies.
 type ServiceOptions struct {
-	Store            *Store
-	Verifier         Verifier
-	Keys             KeySet
-	Limiter          RateLimiter
-	Clock            Clock
-	Audit            audit.Appender
-	Logger           *slog.Logger
-	Issuer           string
-	Audience         string
-	AccessTTL        time.Duration
-	RefreshTTL       time.Duration
-	ClockSkew        time.Duration
-	OperationTimeout time.Duration
-	RateLimits       RateLimits
+	Store      *Store
+	Verifier   Verifier
+	Keys       KeySet
+	Limiter    RateLimiter
+	Clock      Clock
+	Audit      audit.Appender
+	Logger     *slog.Logger
+	Issuer     string
+	Audience   string
+	AccessTTL  time.Duration
+	RefreshTTL time.Duration
+	ClockSkew  time.Duration
+	RateLimits RateLimits
 }
 
 type service struct {
@@ -132,7 +134,6 @@ type service struct {
 	logger     *slog.Logger
 	tokens     *AccessTokenIssuer
 	refreshTTL time.Duration
-	timeout    time.Duration
 	rateLimits RateLimits
 }
 
@@ -171,10 +172,6 @@ func newService(options ServiceOptions, store serviceStore) (Service, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	timeout := options.OperationTimeout
-	if timeout <= 0 {
-		timeout = defaultAuthOperationTimeout
-	}
 	tokens, err := NewAccessTokenIssuer(
 		options.Keys,
 		options.Issuer,
@@ -196,20 +193,26 @@ func newService(options ServiceOptions, store serviceStore) (Service, error) {
 		logger:     logger,
 		tokens:     tokens,
 		refreshTTL: options.RefreshTTL,
-		timeout:    timeout,
 		rateLimits: options.RateLimits.withDefaults(),
 	}, nil
 }
 
 func (s *service) JWKS(ctx context.Context) (keys []JWK, err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
 	defer func() { s.logOperation("jwks", "", err) }()
 	keys, err = s.keys.PublicJWKS(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
 	return keys, nil
+}
+
+func (s *service) Close() error {
+	if s.limiter != nil {
+		if err := s.limiter.Close(); err != nil {
+			return fmt.Errorf("close rate limiter: %w", err)
+		}
+	}
+	return nil
 }
 
 var _ Service = (*service)(nil)

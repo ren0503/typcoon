@@ -180,9 +180,6 @@ func TestLoadAuthDefaults(t *testing.T) {
 	if cfg.Auth.Signing.Mode != "local" || cfg.Auth.Signing.ActiveKID != "local-dev-1" {
 		t.Errorf("signing defaults = %q/%q", cfg.Auth.Signing.Mode, cfg.Auth.Signing.ActiveKID)
 	}
-	if cfg.Auth.RateLimit.Backend != "memory" {
-		t.Errorf("rate-limit backend = %q", cfg.Auth.RateLimit.Backend)
-	}
 	if cfg.Auth.RateLimit.ExchangeIPPerMin != 10 ||
 		cfg.Auth.RateLimit.ExchangeIdentityPerMin != 30 ||
 		cfg.Auth.RateLimit.RefreshIPPerMin != 60 ||

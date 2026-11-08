@@ -31,7 +31,8 @@ func HashRefreshToken(token string) []byte {
 
 // NewRefreshFamilyID creates a new independently revocable session family.
 func NewRefreshFamilyID() uuid.UUID {
-	return uuid.New()
+	id, _ := uuid.NewV7()
+	return id
 }
 
 // RefreshTokenExpiry calculates the refresh-token expiry from the given clock.

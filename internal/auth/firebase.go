@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	firebase "firebase.google.com/go/v4"
@@ -50,18 +51,13 @@ type firebaseAuthClient interface {
 // FirebaseVerifier verifies Firebase ID Tokens with revocation checking.
 type FirebaseVerifier struct {
 	client  firebaseAuthClient
-	timeout time.Duration
 }
 
 // NewFirebaseVerifier builds the Firebase Admin SDK verifier. An optional
 // emulator is accepted only in development or test.
 func NewFirebaseVerifier(ctx context.Context, cfg FirebaseVerifierConfig) (*FirebaseVerifier, error) {
-	timeout := cfg.Timeout
-	if timeout <= 0 {
-		timeout = defaultFirebaseTimeout
-	}
 	if cfg.ProjectID == "" {
-		return &FirebaseVerifier{timeout: timeout}, nil
+		return &FirebaseVerifier{}, nil
 	}
 
 	opts := make([]option.ClientOption, 0, 2)
@@ -86,7 +82,7 @@ func NewFirebaseVerifier(ctx context.Context, cfg FirebaseVerifierConfig) (*Fire
 	if err != nil {
 		return nil, fmt.Errorf("initialize Firebase Auth client: %w", err)
 	}
-	return &FirebaseVerifier{client: client, timeout: timeout}, nil
+	return &FirebaseVerifier{client: client}, nil
 }
 
 // Verify validates the token signature, project audience, and revocation state.
@@ -94,17 +90,15 @@ func (v *FirebaseVerifier) Verify(ctx context.Context, idToken string) (Verified
 	if v.client == nil {
 		return VerifiedIdentity{}, ErrFirebaseUnavailable
 	}
-	verifyCtx, cancel := context.WithTimeout(ctx, v.timeout)
-	defer cancel()
 
-	token, err := v.client.VerifyIDTokenAndCheckRevoked(verifyCtx, idToken)
+	token, err := v.client.VerifyIDTokenAndCheckRevoked(ctx, idToken)
 	if err != nil {
 		if firebaseauth.IsIDTokenInvalid(err) {
 			return VerifiedIdentity{}, ErrInvalidFirebaseToken
 		}
 		return VerifiedIdentity{}, fmt.Errorf("%w: %v", ErrFirebaseUnavailable, err)
 	}
-	if token.UID == "" {
+	if strings.TrimSpace(token.UID) == "" {
 		return VerifiedIdentity{}, ErrInvalidFirebaseToken
 	}
 

@@ -24,7 +24,7 @@ func buildAuthService(
 	pool *pgxpool.Pool,
 	logger *slog.Logger,
 	awsCfg aws.Config,
-) (auth.Service, auth.Provider, func(), error) {
+) (auth.Service, auth.Provider, error) {
 	verifier, err := auth.NewFirebaseVerifier(ctx, auth.FirebaseVerifierConfig{
 		ProjectID:       cfg.Auth.Firebase.ProjectID,
 		CredentialsFile: cfg.Auth.Firebase.CredentialsFile,
@@ -32,21 +32,21 @@ func buildAuthService(
 		AppEnv:          cfg.AppEnv,
 	})
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	keys, err := buildKeySet(ctx, cfg, awsCfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
-	limiter, closeLimiter, err := buildRateLimiter(ctx, cfg)
+	limiter, err := buildRateLimiter(ctx, cfg)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	clock := auth.SystemClock{}
 	tokens, err := auth.NewAccessTokenIssuer(keys, cfg.Auth.Token.Issuer, cfg.Auth.Token.Audience, cfg.Auth.Token.AccessTTL, cfg.Auth.Token.ClockSkew, clock)
 	if err != nil {
-		closeLimiter()
-		return nil, nil, nil, err
+		limiter.Close()
+		return nil, nil, err
 	}
 	store := auth.NewStore(pool)
 	service, err := auth.NewService(auth.ServiceOptions{
@@ -72,15 +72,15 @@ func buildAuthService(
 		},
 	})
 	if err != nil {
-		closeLimiter()
-		return nil, nil, nil, err
+		limiter.Close()
+		return nil, nil, err
 	}
 	provider, err := auth.NewAccessTokenProvider(tokens, store)
 	if err != nil {
-		closeLimiter()
-		return nil, nil, nil, err
+		limiter.Close()
+		return nil, nil, err
 	}
-	return service, provider, closeLimiter, nil
+	return service, provider, nil
 }
 
 func buildKeySet(ctx context.Context, cfg *config.Config, awsCfg aws.Config) (auth.KeySet, error) {
@@ -125,36 +125,29 @@ func buildKeySet(ctx context.Context, cfg *config.Config, awsCfg aws.Config) (au
 	}
 }
 
-func buildRateLimiter(ctx context.Context, cfg *config.Config) (auth.RateLimiter, func(), error) {
-	switch cfg.Auth.RateLimit.Backend {
-	case "memory":
-		return auth.NewMemoryRateLimiter(auth.SystemClock{}), func() {}, nil
-	case "redis":
-		if cfg.Auth.RateLimit.RedisURL == "" {
-			return nil, nil, errors.New("AUTH_RATE_LIMIT_REDIS_URL is required for the Redis limiter")
-		}
-		options, err := redis.ParseURL(cfg.Auth.RateLimit.RedisURL)
-		if err != nil {
-			return nil, nil, fmt.Errorf("parse Redis rate-limit URL: %w", err)
-		}
-		const redisTimeout = 2 * time.Second
-		options.DialTimeout = redisTimeout
-		options.ReadTimeout = redisTimeout
-		options.WriteTimeout = redisTimeout
-		client := redis.NewClient(options)
-		pingCtx, cancel := context.WithTimeout(ctx, redisTimeout)
-		defer cancel()
-		if err := client.Ping(pingCtx).Err(); err != nil {
-			_ = client.Close()
-			return nil, nil, fmt.Errorf("connect Redis rate limiter: %w", err)
-		}
-		limiter, err := auth.NewRedisRateLimiterWithTimeout(client, cfg.Auth.RateLimit.RedisPrefix, redisTimeout)
-		if err != nil {
-			_ = client.Close()
-			return nil, nil, err
-		}
-		return limiter, func() { _ = client.Close() }, nil
-	default:
-		return nil, nil, fmt.Errorf("unsupported rate-limit backend %q", cfg.Auth.RateLimit.Backend)
+func buildRateLimiter(ctx context.Context, cfg *config.Config) (auth.RateLimiter, error) {
+	if cfg.Auth.RateLimit.RedisURL == "" {
+		return nil, errors.New("AUTH_RATE_LIMIT_REDIS_URL is required for the Redis limiter")
 	}
+	options, err := redis.ParseURL(cfg.Auth.RateLimit.RedisURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse Redis rate-limit URL: %w", err)
+	}
+	const redisTimeout = 2 * time.Second
+	options.DialTimeout = redisTimeout
+	options.ReadTimeout = redisTimeout
+	options.WriteTimeout = redisTimeout
+	client := redis.NewClient(options)
+	pingCtx, cancel := context.WithTimeout(ctx, redisTimeout)
+	defer cancel()
+	if err := client.Ping(pingCtx).Err(); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("connect Redis rate limiter: %w", err)
+	}
+	limiter, err := auth.NewRedisRateLimiterWithTimeout(client, cfg.Auth.RateLimit.RedisPrefix, redisTimeout)
+	if err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	return limiter, nil
 }

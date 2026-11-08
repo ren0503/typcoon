@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -35,71 +34,23 @@ type RateLimitDecision struct {
 // RateLimiter applies a fixed-window counter for an arbitrary key.
 type RateLimiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (RateLimitDecision, error)
-}
-
-type memoryCounter struct {
-	count   int
-	resetAt time.Time
-}
-
-// MemoryRateLimiter is a process-local fixed-window limiter for development/test.
-type MemoryRateLimiter struct {
-	mu       sync.Mutex
-	clock    Clock
-	counters map[string]memoryCounter
-}
-
-// NewMemoryRateLimiter builds an in-memory limiter.
-func NewMemoryRateLimiter(clock Clock) *MemoryRateLimiter {
-	if clock == nil {
-		clock = SystemClock{}
-	}
-	return &MemoryRateLimiter{clock: clock, counters: make(map[string]memoryCounter)}
-}
-
-// Allow increments the key's fixed-window counter.
-func (l *MemoryRateLimiter) Allow(_ context.Context, key string, limit int, window time.Duration) (RateLimitDecision, error) {
-	if key == "" || limit <= 0 || window <= 0 {
-		return RateLimitDecision{}, errors.New("invalid rate-limit key, limit, or window")
-	}
-	now := l.clock.Now().UTC()
-
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	counter, ok := l.counters[key]
-	if !ok || !now.Before(counter.resetAt) {
-		counter = memoryCounter{resetAt: now.Add(window)}
-	}
-	counter.count++
-	l.counters[key] = counter
-
-	if counter.count > limit {
-		return RateLimitDecision{
-			Allowed:    false,
-			Remaining:  0,
-			RetryAfter: counter.resetAt.Sub(now),
-		}, nil
-	}
-	return RateLimitDecision{
-		Allowed:   true,
-		Remaining: limit - counter.count,
-	}, nil
+	Close() error
 }
 
 // RedisRateLimiter uses Redis atomic fixed-window counters shared by instances.
 type RedisRateLimiter struct {
-	client  redis.Cmdable
+	client  *redis.Client
 	prefix  string
 	timeout time.Duration
 }
 
 // NewRedisRateLimiter builds a shared limiter. The prefix namespaces all keys.
-func NewRedisRateLimiter(client redis.Cmdable, prefix string) (*RedisRateLimiter, error) {
+func NewRedisRateLimiter(client *redis.Client, prefix string) (*RedisRateLimiter, error) {
 	return NewRedisRateLimiterWithTimeout(client, prefix, defaultRedisRateLimitTimeout)
 }
 
 // NewRedisRateLimiterWithTimeout builds a shared limiter with a bounded Redis call timeout.
-func NewRedisRateLimiterWithTimeout(client redis.Cmdable, prefix string, timeout time.Duration) (*RedisRateLimiter, error) {
+func NewRedisRateLimiterWithTimeout(client *redis.Client, prefix string, timeout time.Duration) (*RedisRateLimiter, error) {
 	if client == nil {
 		return nil, errors.New("redis client is required")
 	}
@@ -150,6 +101,10 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 	return RateLimitDecision{Allowed: true, Remaining: remaining}, nil
 }
 
+func (l *RedisRateLimiter) Close() error {
+	return l.client.Close()
+}
+
 func redisInt(value interface{}) (int64, bool) {
 	switch typed := value.(type) {
 	case int64:
@@ -166,6 +121,5 @@ func redisInt(value interface{}) (int64, bool) {
 }
 
 var (
-	_ RateLimiter = (*MemoryRateLimiter)(nil)
 	_ RateLimiter = (*RedisRateLimiter)(nil)
 )

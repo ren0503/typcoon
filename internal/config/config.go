@@ -92,7 +92,6 @@ type SigningConfig struct {
 
 // RateLimitConfig controls shared authentication abuse limits.
 type RateLimitConfig struct {
-	Backend                string `env:"AUTH_RATE_LIMIT_BACKEND" validate:"required,oneof=memory redis"`
 	RedisURL               string `env:"AUTH_RATE_LIMIT_REDIS_URL"`
 	RedisPrefix            string `env:"AUTH_RATE_LIMIT_REDIS_PREFIX"`
 	ExchangeIPPerMin       int    `env:"AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN" validate:"required,gt=0"`
@@ -274,7 +273,6 @@ func Load() (*Config, error) {
 				LocalKID:     v.GetString("auth_signing_local_kid"),
 			},
 			RateLimit: RateLimitConfig{
-				Backend:                v.GetString("auth_rate_limit_backend"),
 				RedisURL:               v.GetString("auth_rate_limit_redis_url"),
 				RedisPrefix:            v.GetString("auth_rate_limit_redis_prefix"),
 				ExchangeIPPerMin:       v.GetInt("auth_rate_limit_exchange_ip_per_min"),
@@ -359,9 +357,6 @@ func (c *Config) validateAuth() error {
 	}
 	if _, ok := c.Auth.Signing.KMSKeys[c.Auth.Signing.ActiveKID]; !ok {
 		return errors.New("invalid configuration: AUTH_SIGNING_ACTIVE_KID must reference a configured AUTH_SIGNING_KMS_KEYS entry")
-	}
-	if c.Auth.RateLimit.Backend != "redis" {
-		return errors.New("invalid configuration: AUTH_RATE_LIMIT_BACKEND must be redis in production/staging")
 	}
 	if strings.TrimSpace(c.Auth.RateLimit.RedisURL) == "" {
 		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_URL is required in production/staging")

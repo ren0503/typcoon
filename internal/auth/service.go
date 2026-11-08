@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 
 	"github.com/ren0503/tycoon/internal/apperrors"
 	"github.com/ren0503/tycoon/internal/audit"
@@ -66,17 +67,14 @@ type serviceStore interface {
 }
 
 func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session IssuedSession, err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
-	client := input.Client
+	client := lo.CoalesceOrEmpty(input.Client, ClientGuestMobile)
 	defer func() { s.logOperation("exchange", client, err) }()
-	client, err = normalizeClient(input.Client)
-	if err != nil {
+
+	// Validate input and rate-limit.
+	if err := input.Valid(); err != nil {
 		return IssuedSession{}, err
 	}
-	if strings.TrimSpace(input.IDToken) == "" {
-		return IssuedSession{}, ErrAuthenticationFailed
-	}
+
 	if err := s.checkRate(ctx, "exchange:ip:"+rateLimitIP(input.IPAddress), s.rateLimits.ExchangeIPPerMin); err != nil {
 		return IssuedSession{}, err
 	}
@@ -85,36 +83,34 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 	if err != nil {
 		return IssuedSession{}, mapVerifierError(err)
 	}
-	if strings.TrimSpace(verified.UID) == "" {
-		return IssuedSession{}, ErrAuthenticationFailed
-	}
+
 	if err := s.checkRate(ctx, "exchange:identity:"+verified.UID, s.rateLimits.ExchangeIdentityPerMin); err != nil {
 		return IssuedSession{}, err
 	}
 
+	// Resolve the account for the verified identity and requested client.
 	account, _, err := s.resolveAccount(ctx, verified, client)
 	if err != nil {
 		if client == ClientFleetConsole &&
 			(errors.Is(err, ErrClientForbidden) || errors.Is(err, ErrAuthenticationFailed)) {
-			reason := ReasonNoActiveGrant
-			if errors.Is(err, ErrAuthenticationFailed) {
-				reason = ReasonAccountInactive
-			}
-			if auditErr := s.auditAdminDenied(ctx, uuid.Nil, reason); auditErr != nil {
+			if auditErr := s.auditAdminDenied(ctx, uuid.Nil, err); auditErr != nil {
 				return IssuedSession{}, auditErr
 			}
 		}
 		return IssuedSession{}, err
 	}
 
+	// Generate a new access token and refresh token for the account and client.
 	accessToken, accessExpiresAt, err := s.tokens.Issue(ctx, account.ID, client)
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
+
 	refreshToken, refreshHash, err := NewOpaqueRefreshToken()
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
+
 	refreshExpiresAt, err := RefreshTokenExpiry(s.clock.Now(), s.refreshTTL)
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
@@ -139,7 +135,7 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 		Client:      client,
 		TokenHash:   refreshHash,
 		ExpiresAt:   refreshExpiresAt,
-		UserAgent:   optionalString(input.UserAgent),
+		UserAgent:   new(input.UserAgent),
 	}, entry, s.audit)
 	if err != nil {
 		return IssuedSession{}, err
@@ -157,8 +153,6 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 }
 
 func (s *service) Refresh(ctx context.Context, input RefreshInput) (session IssuedSession, err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
 	client := ""
 	defer func() { s.logOperation("refresh", client, err) }()
 	rawToken := strings.TrimSpace(input.RefreshToken)
@@ -205,7 +199,7 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 	if stored.Client == ClientFleetConsole {
 		if _, err := s.store.ResolveActiveAdmin(ctx, account.ID); err != nil {
 			if errors.Is(err, ErrAdminGrantNotFound) {
-				if auditErr := s.auditAdminDenied(ctx, account.ID, ReasonNoActiveGrant); auditErr != nil {
+				if auditErr := s.auditAdminDenied(ctx, account.ID, nil); auditErr != nil {
 					return IssuedSession{}, auditErr
 				}
 				return IssuedSession{}, ErrAuthenticationFailed
@@ -229,7 +223,7 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 		ID:        uuid.New(),
 		TokenHash: refreshHash,
 		ExpiresAt: refreshExpiresAt,
-		UserAgent: optionalString(input.UserAgent),
+		UserAgent: new(input.UserAgent),
 	}, refreshedEntry, reuseEntry, now, s.audit)
 	if err != nil {
 		return IssuedSession{}, mapRefreshError(err)
@@ -285,8 +279,6 @@ func mapRefreshError(err error) error {
 }
 
 func (s *service) Logout(ctx context.Context, refreshToken string) (err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
 	client := ""
 	defer func() { s.logOperation("logout", client, err) }()
 	rawToken := strings.TrimSpace(refreshToken)
@@ -321,8 +313,6 @@ func (s *service) Logout(ctx context.Context, refreshToken string) (err error) {
 }
 
 func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) (err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
 	defer func() { s.logOperation("logout_all", "", err) }()
 	if accountID == uuid.Nil {
 		return ErrAuthenticationFailed
@@ -344,8 +334,6 @@ func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) (err error
 }
 
 func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken string) (identity Identity, err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
 	defer func() { s.logOperation("identity_link", "", err) }()
 	if accountID == uuid.Nil || strings.TrimSpace(idToken) == "" {
 		return Identity{}, ErrAuthenticationFailed
@@ -408,8 +396,6 @@ func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken
 }
 
 func (s *service) UnlinkIdentity(ctx context.Context, accountID, identityID uuid.UUID) (err error) {
-	ctx, cancel := s.operationContext(ctx)
-	defer cancel()
 	defer func() { s.logOperation("identity_unlink", "", err) }()
 	if accountID == uuid.Nil || identityID == uuid.Nil {
 		return ErrAuthenticationFailed
@@ -500,7 +486,7 @@ func (s *service) provisionGuest(ctx context.Context, verified VerifiedIdentity)
 	accountParams := sqlc.CreateAccountParams{
 		ID:          accountID,
 		Email:       email,
-		DisplayName: optionalString(strings.TrimSpace(verified.DisplayName)),
+		DisplayName: lo.ToPtr(strings.TrimSpace(verified.DisplayName)),
 		Locale:      defaultLocale,
 		Status:      "active",
 	}
@@ -562,7 +548,12 @@ func (s *service) requireAdminGrant(ctx context.Context, accountID uuid.UUID) er
 	return nil
 }
 
-func (s *service) auditAdminDenied(ctx context.Context, accountID uuid.UUID, reason AuthAuditReason) error {
+func (s *service) auditAdminDenied(ctx context.Context, accountID uuid.UUID, err error) error {
+	reason := ReasonNoActiveGrant
+	if err != nil && errors.Is(err, ErrAuthenticationFailed) {
+		reason = ReasonAccountInactive
+	}
+
 	actorID := ""
 	if accountID != uuid.Nil {
 		actorID = accountID.String()
@@ -611,13 +602,6 @@ func (s *service) checkRate(ctx context.Context, key string, limit int) error {
 		retryAfter = rateLimitWindow
 	}
 	return &RateLimitedError{RetryAfter: retryAfter}
-}
-
-func (s *service) operationContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	if s.timeout <= 0 {
-		return ctx, func() {}
-	}
-	return context.WithTimeout(ctx, s.timeout)
 }
 
 func (s *service) logOperation(operation, client string, err error) {
@@ -681,13 +665,6 @@ func verifiedEmail(identity VerifiedIdentity) *string {
 		return nil
 	}
 	return &email
-}
-
-func optionalString(value string) *string {
-	if value == "" {
-		return nil
-	}
-	return &value
 }
 
 func rateLimitIP(ip string) string {

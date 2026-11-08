@@ -241,6 +241,8 @@ func (l *unitLimiter) Allow(_ context.Context, key string, limit int, window tim
 	return l.decision, nil
 }
 
+func (l *unitLimiter) Close() error { return nil }
+
 type unitAudit struct{}
 
 func (unitAudit) AppendTx(context.Context, audit.Execer, audit.Entry) error { return nil }

@@ -122,6 +122,10 @@ func (f *FakeRateLimiter) Allow(_ context.Context, key string, limit int, window
 	return decision, nil
 }
 
+func (f *FakeRateLimiter) Close() error {
+	return nil
+}
+
 // Calls returns a copy of recorded limiter calls.
 func (f *FakeRateLimiter) Calls() []RateLimitCall {
 	f.mu.Lock()
