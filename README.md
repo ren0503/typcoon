@@ -21,7 +21,7 @@ No AWS account or credentials are required for local development or tests.
 
 ```bash
 cp .env.example .env
-docker compose up -d postgres   # PostgreSQL only; the API runs from source
+docker compose up -d postgres redis   # PostgreSQL and Redis; the API runs from source
 make sqlc                       # regenerate sqlc models/queries (already committed)
 make migrate-up                 # apply the foundation + 41-table business schema
 make run                        # start the API on :8080
@@ -45,8 +45,8 @@ curl -i -H "X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000" 
   http://localhost:8080/v1/tenants
 ```
 
-`AUTH_MODE=dev` is rejected when `APP_ENV=production`. `AUTH_MODE=jwt` is reserved for the later auth
-feature and currently denies all requests. No AWS account or credentials are required locally
+`AUTH_MODE=dev` is rejected when `APP_ENV=production`. `AUTH_MODE=jwt` enables the Firebase SSO flow;
+see [`docs/auth.md`](docs/auth.md) for the full setup. No AWS account or credentials are required locally
 (`AWS_EC2_METADATA_DISABLED=true` is set in `.env.example`).
 
 Stop the database with `docker compose down` (add `-v` to remove the volume). If you prefer the full
@@ -67,8 +67,8 @@ Configuration is read **only from process environment variables**. The applicati
 `.env`; the Makefile and Docker Compose load it for local convenience.
 
 See `.env.example` for every variable and its default. Required settings are `DB_HOST`, `DB_NAME`,
-`DB_USER`, and `DB_PASSWORD`; authentication requires `AUTH_MODE` (`dev` or `jwt`) and, in dev mode,
-a non-empty `AUTH_DEV_PRINCIPALS` allowlist. The foundation contract is in
+`DB_USER`, and `DB_PASSWORD`; authentication requires `AUTH_MODE` (`dev` or `jwt`),
+`AUTH_RATE_LIMIT_REDIS_URL`, and, in dev mode, a non-empty `AUTH_DEV_PRINCIPALS` allowlist. The foundation contract is in
 `specs/001-backend-foundation/contracts/configuration.md`.
 
 Production environments MUST set `DB_SSLMODE=require` or stricter.

@@ -165,7 +165,6 @@ func Load() (*Config, error) {
 	bind("auth_signing_kms_keys", "AUTH_SIGNING_KMS_KEYS")
 	bind("auth_signing_local_key_file", "AUTH_SIGNING_LOCAL_KEY_FILE")
 	bind("auth_signing_local_kid", "AUTH_SIGNING_LOCAL_KID")
-	bind("auth_rate_limit_backend", "AUTH_RATE_LIMIT_BACKEND")
 	bind("auth_rate_limit_redis_url", "AUTH_RATE_LIMIT_REDIS_URL")
 	bind("auth_rate_limit_redis_prefix", "AUTH_RATE_LIMIT_REDIS_PREFIX")
 	bind("auth_rate_limit_exchange_ip_per_min", "AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN")
@@ -328,6 +327,12 @@ func (c *Config) validateAuth() error {
 	if c.Auth.Token.AccessTTL > maxAccessTokenTTL {
 		return errors.New("invalid configuration: AUTH_ACCESS_TTL must not exceed 15m")
 	}
+	if strings.TrimSpace(c.Auth.RateLimit.RedisURL) == "" {
+		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_URL is required")
+	}
+	if strings.TrimSpace(c.Auth.RateLimit.RedisPrefix) == "" {
+		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_PREFIX is required")
+	}
 	if c.AppEnv != "production" && c.AppEnv != "staging" {
 		return nil
 	}
@@ -357,12 +362,6 @@ func (c *Config) validateAuth() error {
 	}
 	if _, ok := c.Auth.Signing.KMSKeys[c.Auth.Signing.ActiveKID]; !ok {
 		return errors.New("invalid configuration: AUTH_SIGNING_ACTIVE_KID must reference a configured AUTH_SIGNING_KMS_KEYS entry")
-	}
-	if strings.TrimSpace(c.Auth.RateLimit.RedisURL) == "" {
-		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_URL is required in production/staging")
-	}
-	if strings.TrimSpace(c.Auth.RateLimit.RedisPrefix) == "" {
-		return errors.New("invalid configuration: AUTH_RATE_LIMIT_REDIS_PREFIX is required in production/staging")
 	}
 	minimums := []rateLimitMinimum{
 		{"AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN", c.Auth.RateLimit.ExchangeIPPerMin, 10},

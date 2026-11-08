@@ -45,7 +45,7 @@ func buildAuthService(
 	clock := auth.SystemClock{}
 	tokens, err := auth.NewAccessTokenIssuer(keys, cfg.Auth.Token.Issuer, cfg.Auth.Token.Audience, cfg.Auth.Token.AccessTTL, cfg.Auth.Token.ClockSkew, clock)
 	if err != nil {
-		limiter.Close()
+		_ = limiter.Close()
 		return nil, nil, err
 	}
 	store := auth.NewStore(pool)
@@ -72,12 +72,12 @@ func buildAuthService(
 		},
 	})
 	if err != nil {
-		limiter.Close()
+		_ = limiter.Close()
 		return nil, nil, err
 	}
 	provider, err := auth.NewAccessTokenProvider(tokens, store)
 	if err != nil {
-		limiter.Close()
+		_ = limiter.Close()
 		return nil, nil, err
 	}
 	return service, provider, nil

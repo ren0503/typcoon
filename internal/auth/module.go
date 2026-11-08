@@ -93,8 +93,6 @@ const (
 	defaultRefreshSessionPerMin   = 30
 	defaultLinkAccountPerMin      = 10
 	defaultLogoutAllAccountPerMin = 5
-
-	defaultAuthOperationTimeout = 10 * time.Second
 )
 
 func (r RateLimits) withDefaults() RateLimits {

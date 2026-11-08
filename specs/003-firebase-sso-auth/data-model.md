@@ -130,7 +130,7 @@ No private key is stored in PostgreSQL, source control, or logs. JWKS is served 
 | Count | Requests in the window | Atomic increment; shared in staging/production |
 | Retry-After | Seconds until reset | Returned with `429` |
 
-Rate-limit state is intentionally not part of the database schema. Redis is the shared implementation for deployed environments; the in-memory implementation is limited to development/test.
+Rate-limit state is intentionally not part of the database schema. Redis is the shared implementation in every environment; there is no in-memory implementation.
 
 ## Migration `00003_firebase_sso_auth.sql`
 

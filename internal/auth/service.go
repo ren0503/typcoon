@@ -645,17 +645,6 @@ func authErrorCategory(err error) string {
 	}
 }
 
-func normalizeClient(client string) (string, error) {
-	client = strings.TrimSpace(client)
-	if client == "" {
-		return ClientGuestMobile, nil
-	}
-	if !validClient(client) {
-		return "", ErrClientForbidden
-	}
-	return client, nil
-}
-
 func verifiedEmail(identity VerifiedIdentity) *string {
 	if !identity.EmailVerified {
 		return nil

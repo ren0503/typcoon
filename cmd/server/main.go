@@ -52,7 +52,7 @@ func run() error {
 		db.Close()
 		return err
 	}
-	defer authService.Close()
+	defer func() { _ = authService.Close() }()
 
 	provider, err := authProvider(cfg, jwtProvider)
 	if err != nil {

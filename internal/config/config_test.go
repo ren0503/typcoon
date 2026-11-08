@@ -31,6 +31,8 @@ func setValidEnv(t *testing.T) {
 	t.Setenv("AWS_REGION", "eu-west-1")
 	t.Setenv("AWS_ENDPOINT_URL", "")
 	t.Setenv("CORS_ALLOWED_ORIGINS", "https://console.example.com,https://admin.example.com")
+	t.Setenv("AUTH_RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
+	t.Setenv("AUTH_RATE_LIMIT_REDIS_PREFIX", "tycoon:auth:ratelimit:")
 }
 
 func TestLoadValidConfiguration(t *testing.T) {
@@ -140,7 +142,6 @@ func setProductionAuthEnv(t *testing.T) {
 	t.Setenv("AUTH_SIGNING_ACTIVE_KID", "kms-1")
 	t.Setenv("AUTH_SIGNING_KMS_KEYS", "kms-1=arn:aws:kms:us-east-1:123456789012:key/abc")
 	t.Setenv("AUTH_SIGNING_LOCAL_KEY_FILE", "")
-	t.Setenv("AUTH_RATE_LIMIT_BACKEND", "redis")
 	t.Setenv("AUTH_RATE_LIMIT_REDIS_URL", "redis://localhost:6379/0")
 	t.Setenv("AUTH_RATE_LIMIT_REDIS_PREFIX", "tycoon:auth:ratelimit:")
 	t.Setenv("AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN", "10")
@@ -156,7 +157,7 @@ func TestLoadAuthDefaults(t *testing.T) {
 	for _, key := range []string{
 		"AUTH_TOKEN_ISSUER", "AUTH_TOKEN_AUDIENCE", "AUTH_ACCESS_TTL", "AUTH_REFRESH_TTL",
 		"AUTH_CLOCK_SKEW", "AUTH_SIGNING_MODE", "AUTH_SIGNING_ACTIVE_KID",
-		"AUTH_SIGNING_LOCAL_KID", "AUTH_RATE_LIMIT_BACKEND",
+		"AUTH_SIGNING_LOCAL_KID",
 		"AUTH_RATE_LIMIT_EXCHANGE_IP_PER_MIN", "AUTH_RATE_LIMIT_EXCHANGE_IDENTITY_PER_MIN",
 		"AUTH_RATE_LIMIT_REFRESH_IP_PER_MIN", "AUTH_RATE_LIMIT_REFRESH_SESSION_PER_MIN",
 		"AUTH_RATE_LIMIT_LINK_ACCOUNT_PER_MIN", "AUTH_RATE_LIMIT_LOGOUT_ALL_ACCOUNT_PER_MIN",
@@ -190,6 +191,33 @@ func TestLoadAuthDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadRequiresRedisRateLimiterInEveryEnvironment(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+	}{
+		{name: "missing redis url", key: "AUTH_RATE_LIMIT_REDIS_URL", value: ""},
+		{name: "blank redis url", key: "AUTH_RATE_LIMIT_REDIS_URL", value: " "},
+		{name: "blank redis prefix", key: "AUTH_RATE_LIMIT_REDIS_PREFIX", value: " "},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setValidEnv(t)
+			t.Setenv(tt.key, tt.value)
+
+			_, err := Load()
+			if err == nil {
+				t.Fatal("Load() expected an error")
+			}
+			if !strings.Contains(err.Error(), tt.key) {
+				t.Errorf("error %q does not name %s", err, tt.key)
+			}
+		})
+	}
+}
+
 func TestLoadAcceptsValidProductionConfiguration(t *testing.T) {
 	setProductionAuthEnv(t)
 
@@ -216,7 +244,6 @@ func TestLoadRejectsInsecureOrIncompleteProductionAuth(t *testing.T) {
 		{name: "local signing key file", key: "AUTH_SIGNING_LOCAL_KEY_FILE", value: "/tmp/dev-key.pem", want: "AUTH_SIGNING_LOCAL_KEY_FILE"},
 		{name: "missing kms keys", key: "AUTH_SIGNING_KMS_KEYS", value: "", want: "AUTH_SIGNING_KMS_KEYS"},
 		{name: "active kid not configured", key: "AUTH_SIGNING_ACTIVE_KID", value: "other", want: "AUTH_SIGNING_ACTIVE_KID"},
-		{name: "memory limiter", key: "AUTH_RATE_LIMIT_BACKEND", value: "memory", want: "AUTH_RATE_LIMIT_BACKEND"},
 		{name: "missing redis url", key: "AUTH_RATE_LIMIT_REDIS_URL", value: "", want: "AUTH_RATE_LIMIT_REDIS_URL"},
 		{name: "missing issuer", key: "AUTH_TOKEN_ISSUER", value: " ", want: "AUTH_TOKEN_ISSUER"},
 		{name: "missing audience", key: "AUTH_TOKEN_AUDIENCE", value: " ", want: "AUTH_TOKEN_AUDIENCE"},

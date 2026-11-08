@@ -6,14 +6,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	firebase "firebase.google.com/go/v4"
 	firebaseauth "firebase.google.com/go/v4/auth"
 	"google.golang.org/api/option"
 )
-
-const defaultFirebaseTimeout = 5 * time.Second
 
 var (
 	// ErrInvalidFirebaseToken indicates a token that failed Firebase verification.
@@ -41,7 +38,6 @@ type FirebaseVerifierConfig struct {
 	CredentialsFile string
 	EmulatorHost    string
 	AppEnv          string
-	Timeout         time.Duration
 }
 
 type firebaseAuthClient interface {
@@ -50,7 +46,7 @@ type firebaseAuthClient interface {
 
 // FirebaseVerifier verifies Firebase ID Tokens with revocation checking.
 type FirebaseVerifier struct {
-	client  firebaseAuthClient
+	client firebaseAuthClient
 }
 
 // NewFirebaseVerifier builds the Firebase Admin SDK verifier. An optional

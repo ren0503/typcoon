@@ -16,7 +16,7 @@ Two specification conflicts are resolved explicitly in [research.md](./research.
 
 **Primary Dependencies**: Firebase Admin SDK (`firebase.google.com/go/v4`), `github.com/golang-jwt/jwt/v5` (RS256 validation), `github.com/redis/go-redis/v9` (shared rate limits), AWS SDK for Go v2 KMS client (asymmetric signing), existing chi v5, pgx v5, sqlc, Goose, `google/uuid`, `go-playground/validator`, and OpenAPI tooling.
 
-**Storage**: PostgreSQL 15+ for accounts, identities, refresh tokens, administrator grants, and audit rows. Redis/Valkey for shared authentication rate-limit counters in staging/production; in-memory limiter only for development/test.
+**Storage**: PostgreSQL 15+ for accounts, identities, refresh tokens, administrator grants, and audit rows. Redis/Valkey for shared authentication rate-limit counters in every environment, including development and test.
 
 **Testing**: `go test ./...` (unit, config, contract spec lint) plus `go test -tags=integration ./...` (testcontainers PostgreSQL, `miniredis`, fakes for Firebase/KMS). No production Firebase, Google, Apple, KMS, or email credentials.
 

@@ -50,7 +50,7 @@ complete Firebase exchange and backend-token flow.
 | Signing key set | Resolves the active signing key and publishes public JWKS keys. | `internal/auth/signing.go` |
 | Refresh token utilities | Generate opaque refresh tokens and SHA-256 hashes, calculate expiry, create family IDs. | `internal/auth/refresh.go` |
 | Store | Transactional persistence for identities, accounts, refresh-token rotation, and audit rows. | `internal/auth/store.go` |
-| Rate limiter | Enforces per-minute limits in memory (development/test) or Redis (staging/production). | `internal/auth/ratelimit.go` |
+| Rate limiter | Enforces per-minute limits in Redis in every environment. | `internal/auth/ratelimit.go` |
 | Bearer middleware | Resolves a principal from the request and stores it in the context. | `internal/httpserver/middleware/auth.go` |
 
 Startup wiring lives in `cmd/server/main.go` and `cmd/server/auth.go`. Configuration validation
@@ -325,8 +325,8 @@ request.
 
 ## 12. Rate Limits
 
-Limits are enforced per one-minute window. Development/test use the in-memory backend; staging and
-production require Redis so limits are shared across instances.
+Limits are enforced per one-minute window in Redis so limits are shared across instances. Redis is
+required in every environment, including local development and tests.
 
 | Endpoint | Scope | Default per minute |
 |---|---|---|
@@ -401,7 +401,6 @@ list and defaults.
 | `AUTH_SIGNING_KMS_KEYS` | Comma-separated `kid=arn` KMS keys. |
 | `AUTH_SIGNING_LOCAL_KEY_FILE` | Development-only PEM key file. |
 | `AUTH_SIGNING_LOCAL_KID` | Key ID for the local signer. |
-| `AUTH_RATE_LIMIT_BACKEND` | `memory` or `redis`. |
 | `AUTH_RATE_LIMIT_REDIS_URL` | Redis connection URL for shared limits. |
 | `AUTH_RATE_LIMIT_REDIS_PREFIX` | Redis key prefix. |
 | `AUTH_RATE_LIMIT_*_PER_MIN` | Per-endpoint rate limits. |
@@ -411,15 +410,16 @@ Fail-fast rules include:
 - `AUTH_MODE=dev` is rejected in production.
 - `AUTH_MODE=jwt` requires a Firebase project.
 - The Firebase emulator is rejected outside development/test.
-- Staging/production require KMS signing, Firebase credentials, Redis, and rate limits at or above
-  the documented minimums.
+- Redis URL and prefix are required in every environment.
+- Staging/production require KMS signing, Firebase credentials, and rate limits at or above the
+  documented minimums.
 - Local signing material and local key files are rejected in staging/production.
 - KMS mode requires keys and an active key that references one of them.
-- Redis mode requires a URL and prefix.
 
 ## 16. Local Development
 
-There are two ways to exercise protected APIs locally.
+There are two ways to exercise protected APIs locally. Both require Redis because the auth service
+always constructs the shared Redis rate limiter.
 
 ### 16.1 Dev allowlist mode
 
@@ -451,7 +451,6 @@ AUTH_SIGNING_MODE=local
 AUTH_SIGNING_ACTIVE_KID=local-dev-1
 AUTH_SIGNING_LOCAL_KID=local-dev-1
 AUTH_SIGNING_LOCAL_KEY_FILE=/tmp/tycoon-auth-dev-key.pem
-AUTH_RATE_LIMIT_BACKEND=redis
 AUTH_RATE_LIMIT_REDIS_URL=redis://localhost:6379/0
 ```
 

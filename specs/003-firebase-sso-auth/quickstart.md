@@ -45,7 +45,6 @@ cp .env.example .env
 #   AUTH_SIGNING_ACTIVE_KID=local-dev-1
 #   AUTH_SIGNING_LOCAL_KID=local-dev-1
 #   AUTH_SIGNING_LOCAL_KEY_FILE=/tmp/tycoon-auth-dev-key.pem
-#   AUTH_RATE_LIMIT_BACKEND=redis
 #   AUTH_RATE_LIMIT_REDIS_URL=redis://localhost:6379/0
 #   AUTH_ACCESS_TTL=15m
 #   AUTH_REFRESH_TTL=720h
@@ -61,7 +60,8 @@ make run
 
 Expected startup behavior:
 
-- Production/staging rejects local signing, emulator mode, missing Firebase credentials, missing KMS configuration, or missing Redis with a clear configuration error before serving.
+- Every environment rejects missing Redis configuration with a clear error before serving.
+- Production/staging rejects local signing, emulator mode, missing Firebase credentials, or missing KMS configuration before serving.
 - Development/test accepts the emulator and local key only when `APP_ENV` is `development` or `test`.
 - `GET /healthz` still works; `/v1/auth/jwks` returns public keys; protected `/v1` routes still reject requests without a backend access token.
 
