@@ -20,23 +20,21 @@ import (
 	"github.com/ren0503/tycoon/internal/voyage"
 )
 
-// Modules holds every business module constructed behind its public interface.
 type Modules struct {
-	Auth     auth.Service
-	Tenant   tenant.TenantService
-	Ship     ship.Service
-	Voyage   voyage.Service
-	Staff    staff.Service
-	Partner  partner.Service
-	Booking  booking.Service
-	Guest    guest.Service
-	Accounts auth.AccountService
-	AIParams ai.AIParamService
-	Feedback feedback.FeedbackService
-	Sync     syncmodule.Service
+	AuthSvc     auth.Service
+	TenantSvc   tenant.TenantService
+	ShipSvc     ship.Service
+	VoyageSvc   voyage.Service
+	StaffSvc    staff.Service
+	PartnerSvc  partner.Service
+	BookingSvc  booking.Service
+	GuestSvc    guest.Service
+	AccountsSvc auth.AccountService
+	AIParamsSvc ai.AIParamService
+	FeedbackSvc feedback.FeedbackService
+	SyncSvc     syncmodule.Service
 }
 
-// BuildModules constructs the acyclic module graph described in data-model.md.
 func BuildModules(pool *pgxpool.Pool, logger *slog.Logger, authService auth.Service) Modules {
 	auditStore := audit.NewStore(pool, logger)
 	shipSvc := ship.New(pool, logger)
@@ -50,34 +48,34 @@ func BuildModules(pool *pgxpool.Pool, logger *slog.Logger, authService auth.Serv
 		panic("guest document cipher: " + err.Error())
 	}
 	return Modules{
-		Auth:     authService,
-		Tenant:   tenant.New(pool),
-		Ship:     shipSvc,
-		Voyage:   voyageSvc,
-		Staff:    staffSvc,
-		Partner:  partnerSvc,
-		Booking:  bookingSvc,
-		Guest:    guest.New(pool, bookingSvc, auditStore, documentCipher),
-		Accounts: accountSvc,
-		AIParams: ai.New(pool),
-		Feedback: feedback.New(pool, shipSvc, voyageSvc),
-		Sync:     syncmodule.New(pool, shipSvc, voyageSvc),
+		AuthSvc:     authService,
+		TenantSvc:   tenant.New(pool),
+		ShipSvc:     shipSvc,
+		VoyageSvc:   voyageSvc,
+		StaffSvc:    staffSvc,
+		PartnerSvc:  partnerSvc,
+		BookingSvc:  bookingSvc,
+		GuestSvc:    guest.New(pool, bookingSvc, auditStore, documentCipher),
+		AccountsSvc: accountSvc,
+		AIParamsSvc: ai.New(pool),
+		FeedbackSvc: feedback.New(pool, shipSvc, voyageSvc),
+		SyncSvc:     syncmodule.New(pool, shipSvc, voyageSvc),
 	}
 }
 
 // RegisterRoutes mounts every module that exposes an HTTP surface under /v1.
 func (m Modules) RegisterRoutes(r chi.Router) {
-	tenant.RegisterRoutes(r, m.Tenant)
-	ship.RegisterRoutes(r, m.Ship)
-	voyage.RegisterRoutes(r, m.Voyage)
-	staff.RegisterRoutes(r, m.Staff)
-	partner.RegisterRoutes(r, m.Partner)
-	booking.RegisterRoutes(r, m.Booking)
-	guest.RegisterRoutes(r, m.Guest)
-	auth.RegisterProtectedRoutes(r, m.Auth)
+	tenant.RegisterRoutes(r, m.TenantSvc)
+	ship.RegisterRoutes(r, m.ShipSvc)
+	voyage.RegisterRoutes(r, m.VoyageSvc)
+	staff.RegisterRoutes(r, m.StaffSvc)
+	partner.RegisterRoutes(r, m.PartnerSvc)
+	booking.RegisterRoutes(r, m.BookingSvc)
+	guest.RegisterRoutes(r, m.GuestSvc)
+	auth.RegisterProtectedRoutes(r, m.AuthSvc)
 }
 
 // RegisterPublicRoutes mounts public auth routes outside the bearer middleware.
 func (m Modules) RegisterPublicRoutes(r chi.Router) {
-	auth.RegisterPublicRoutes(r, m.Auth)
+	auth.RegisterPublicRoutes(r, m.AuthSvc)
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -31,24 +32,21 @@ type errorBody struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
-type pageEnvelope[T any] struct {
+type PageEnvelope[T any] struct {
 	Data []T  `json:"data"`
-	Meta meta `json:"meta"`
+	Meta Meta `json:"meta"`
 }
 
-type meta struct {
+type Meta struct {
 	NextCursor *string `json:"next_cursor"`
 }
 
-// WriteJSON writes a JSON response with the given status.
 func WriteJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
 
-// WriteError maps an error to the shared envelope. Unknown errors become 500s and
-// their details are never exposed to the client.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	appErr, ok := apperrors.As(err)
 	if !ok {
@@ -61,7 +59,6 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	}})
 }
 
-// Decode parses and validates a JSON request body.
 func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
@@ -88,7 +85,7 @@ func validationMessage(err error) string {
 
 // Page writes a cursor-paginated collection.
 func Page[T any](w http.ResponseWriter, items []T, nextCursor string) {
-	env := pageEnvelope[T]{Data: items}
+	env := PageEnvelope[T]{Data: items}
 	if env.Data == nil {
 		env.Data = []T{}
 	}
@@ -201,4 +198,18 @@ func Header(r *http.Request) string {
 func SetNoStore(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Pragma", "no-cache")
+}
+
+func ClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		return ip
+	}
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	remote := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(remote); err == nil {
+		return host
+	}
+	return remote
 }

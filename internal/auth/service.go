@@ -153,8 +153,9 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 }
 
 func (s *service) Refresh(ctx context.Context, input RefreshInput) (session IssuedSession, err error) {
-	client := ""
+	var client string
 	defer func() { s.logOperation("refresh", client, err) }()
+
 	rawToken := strings.TrimSpace(input.RefreshToken)
 	if rawToken == "" {
 		return IssuedSession{}, ErrAuthenticationFailed

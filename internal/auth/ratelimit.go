@@ -21,7 +21,6 @@ end
 local ttl = redis.call('PTTL', KEYS[1])
 return {current, ttl}
 `
-	defaultRedisRateLimitTimeout = 2 * time.Second
 )
 
 // RateLimitDecision describes the outcome of one rate-limit check.
@@ -39,28 +38,20 @@ type RateLimiter interface {
 
 // RedisRateLimiter uses Redis atomic fixed-window counters shared by instances.
 type RedisRateLimiter struct {
-	client  *redis.Client
-	prefix  string
-	timeout time.Duration
+	client *redis.Client
+	prefix string
 }
 
 // NewRedisRateLimiter builds a shared limiter. The prefix namespaces all keys.
 func NewRedisRateLimiter(client *redis.Client, prefix string) (*RedisRateLimiter, error) {
-	return NewRedisRateLimiterWithTimeout(client, prefix, defaultRedisRateLimitTimeout)
-}
-
-// NewRedisRateLimiterWithTimeout builds a shared limiter with a bounded Redis call timeout.
-func NewRedisRateLimiterWithTimeout(client *redis.Client, prefix string, timeout time.Duration) (*RedisRateLimiter, error) {
 	if client == nil {
 		return nil, errors.New("redis client is required")
 	}
 	if prefix == "" {
 		return nil, errors.New("redis rate-limit prefix is required")
 	}
-	if timeout <= 0 {
-		timeout = defaultRedisRateLimitTimeout
-	}
-	return &RedisRateLimiter{client: client, prefix: prefix, timeout: timeout}, nil
+
+	return &RedisRateLimiter{client: client, prefix: prefix}, nil
 }
 
 // Allow increments the shared fixed-window counter, failing closed on Redis errors.
@@ -68,10 +59,8 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 	if key == "" || limit <= 0 || window <= 0 {
 		return RateLimitDecision{}, errors.New("invalid rate-limit key, limit, or window")
 	}
-	callCtx, cancel := context.WithTimeout(ctx, l.timeout)
-	defer cancel()
 	redisKey := l.prefix + key
-	result, err := l.client.Eval(callCtx, redisFixedWindowScript, []string{redisKey}, window.Milliseconds()).Result()
+	result, err := l.client.Eval(ctx, redisFixedWindowScript, []string{redisKey}, window.Milliseconds()).Result()
 	if err != nil {
 		return RateLimitDecision{}, fmt.Errorf("%w: %v", ErrRateLimiterUnavailable, err)
 	}
@@ -94,10 +83,7 @@ func (l *RedisRateLimiter) Allow(ctx context.Context, key string, limit int, win
 		}
 		return RateLimitDecision{Allowed: false, Remaining: 0, RetryAfter: retryAfter}, nil
 	}
-	remaining := limit - int(count)
-	if remaining < 0 {
-		remaining = 0
-	}
+	remaining := max(limit - int(count), 0)
 	return RateLimitDecision{Allowed: true, Remaining: remaining}, nil
 }
 
@@ -105,7 +91,7 @@ func (l *RedisRateLimiter) Close() error {
 	return l.client.Close()
 }
 
-func redisInt(value interface{}) (int64, bool) {
+func redisInt(value any) (int64, bool) {
 	switch typed := value.(type) {
 	case int64:
 		return typed, true

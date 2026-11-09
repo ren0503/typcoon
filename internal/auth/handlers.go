@@ -3,7 +3,6 @@ package auth
 import (
 	"errors"
 	"math"
-	"net"
 	"net/http"
 	"strconv"
 
@@ -52,14 +51,13 @@ func (h *Handler) exchange(w http.ResponseWriter, r *http.Request) {
 		IDToken:   request.IDToken,
 		Client:    request.Client,
 		UserAgent: r.UserAgent(),
-		IPAddress: clientIP(r),
+		IPAddress: httpx.ClientIP(r),
 	})
 	if err != nil {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.SetNoStore(w)
-	httpx.WriteJSON(w, http.StatusOK, newTokenResponse(session))
+	httpx.WriteJSON(w, http.StatusOK, session.newTokenResponse())
 }
 
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
@@ -72,14 +70,13 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	session, err := h.service.Refresh(r.Context(), RefreshInput{
 		RefreshToken: request.RefreshToken,
 		UserAgent:    r.UserAgent(),
-		IPAddress:    clientIP(r),
+		IPAddress:    httpx.ClientIP(r),
 	})
 	if err != nil {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.SetNoStore(w)
-	httpx.WriteJSON(w, http.StatusOK, newTokenResponse(session))
+	httpx.WriteJSON(w, http.StatusOK, session.newTokenResponse())
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +90,6 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.SetNoStore(w)
 	httpx.NoContent(w)
 }
 
@@ -119,7 +115,6 @@ func (h *Handler) logoutAll(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.SetNoStore(w)
 	httpx.NoContent(w)
 }
 
@@ -140,8 +135,7 @@ func (h *Handler) linkIdentity(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.SetNoStore(w)
-	httpx.WriteJSON(w, http.StatusOK, newIdentityResponse(identity))
+	httpx.WriteJSON(w, http.StatusOK, identity.newIdentityResponse())
 }
 
 func (h *Handler) unlinkIdentity(w http.ResponseWriter, r *http.Request) {
@@ -160,7 +154,6 @@ func (h *Handler) unlinkIdentity(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.SetNoStore(w)
 	httpx.NoContent(w)
 }
 
@@ -210,12 +203,4 @@ func writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 		httpx.WriteError(w, r, apperrors.Internal(err))
 	}
-}
-
-func clientIP(r *http.Request) string {
-	remote := r.RemoteAddr
-	if host, _, err := net.SplitHostPort(remote); err == nil {
-		return host
-	}
-	return remote
 }

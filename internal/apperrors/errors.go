@@ -46,8 +46,7 @@ func Internal(cause error) *Error {
 
 // As extracts an application error from an error chain.
 func As(err error) (*Error, bool) {
-	var appErr *Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*Error](err); ok {
 		return appErr, true
 	}
 	return nil, false
