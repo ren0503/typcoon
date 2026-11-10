@@ -55,20 +55,20 @@ A single Go codebase structured as a modular monolith with twelve modules. Modul
 
 | Module | Owned tables / responsibility | HTTP surface | Audit emission |
 | --- | --- | --- | --- |
-| `tenant` | `tenants`; root tenant lifecycle | `/v1/tenants` | No (deferred) |
-| `ship` | `ships`, `decks`, `areas`, `rooms`; ship master data and capacity | `/v1/ships`, `/v1/decks`, `/v1/areas`, `/v1/rooms` | No (deferred) |
-| `voyage` | `ports`, `voyages`, `port_calls`; itinerary and voyage windows | `/v1/ports`, `/v1/voyages`, `/v1/port-calls` | No (deferred) |
-| `staff` | `staff`, `staff_leaves`, `staff_credentials`, `shift_templates`, `coverage_requirements`, `labor_rules`, `autonomy_policies` | `/v1/staff`, `/v1/shift-templates`, `/v1/coverage-requirements`, `/v1/labor-rules`, `/v1/autonomy-policies` | Yes (**create/update/soft-delete**, `staff.*`) |
-| `partner` | `partners`, `partner_contracts`, `partner_staff`, `partner_services`, `partner_slots` | `/v1/partners`, `/v1/partner-contracts`, `/v1/partner-staff`, `/v1/partner-services`, `/v1/partner-slots` | No (deferred) |
-| `booking` | `bookings`, `service_bookings`; reservation and idempotent booking writes | `/v1/bookings`, `/v1/service-bookings` | Yes (**create/update/soft-delete**, `booking.*`, `service_booking.*`) |
-| `guest` | `guests`, `boarding_passes`; opaque encrypted documents | `/v1/bookings/{id}/guests`, `/v1/guests`, `/v1/boarding-passes` | Yes (**create/update/soft-delete**, `guest.*`) |
-| `auth` | `admin_users`, `admin_ship_access`, `accounts`, `account_identities`, `refresh_tokens`; principal resolution and token hashes | none in this phase | No (deferred) |
+| `tenant` | `tenants`; root tenant lifecycle | `/api/tenants` | No (deferred) |
+| `ship` | `ships`, `decks`, `areas`, `rooms`; ship master data and capacity | `/api/ships`, `/api/decks`, `/api/areas`, `/api/rooms` | No (deferred) |
+| `voyage` | `ports`, `voyages`, `port_calls`; itinerary and voyage windows | `/api/ports`, `/api/voyages`, `/api/port-calls` | No (deferred) |
+| `staff` | `staff`, `staff_leaves`, `staff_credentials`, `shift_templates`, `coverage_requirements`, `labor_rules`, `autonomy_policies` | `/api/staff`, `/api/shift-templates`, `/api/coverage-requirements`, `/api/labor-rules`, `/api/autonomy-policies` | Yes (**create/update/soft-delete**, `staff.*`) |
+| `partner` | `partners`, `partner_contracts`, `partner_staff`, `partner_services`, `partner_slots` | `/api/partners`, `/api/partner-contracts`, `/api/partner-staff`, `/api/partner-services`, `/api/partner-slots` | No (deferred) |
+| `booking` | `bookings`, `service_bookings`; reservation and idempotent booking writes | `/api/bookings`, `/api/service-bookings` | Yes (**create/update/soft-delete**, `booking.*`, `service_booking.*`) |
+| `guest` | `guests`, `boarding_passes`; opaque encrypted documents | `/api/bookings/{id}/guests`, `/api/guests`, `/api/boarding-passes` | Yes (**create/update/soft-delete**, `guest.*`) |
+| `auth` | `admin_users`, `admin_ship_access`, `accounts`, `account_identities`, `refresh_tokens`; Firebase SSO, backend token issuance, principal resolution, and token hashes | `/api/auth/*` | Yes (**session/identity events**, `auth.*`) |
 | `sync` | `hub_devices`, `ship_devices`, `revocations`, `snapshots`, `job_runs`, `ops_events`; read-only `ship_seq`/`change_log` | none (internal ops only) | No (internal ops metadata) |
 | `audit` | `audit_log`; shared append-only appender used inside caller transactions | none | Owns the append path |
 | `ai` | `ai_params`; versioned metadata only, no signing workflow | none in this phase | No (deferred) |
 | `feedback` | `feedback`, `feedback_insights`; submit/read only | none in this phase | No (deferred) |
 
-Ownership boundaries: the table owner is the only module allowed to write its rows. Cross-module reads go through interface methods (for example `ship.Service.TenantID`, `voyage.Service.Lookup`, `booking.Service.BookingExists`) and are re-checked for tenant/ship scope. Audit emission is deliberately limited to `staff`, `booking`, and `guest` in this baseline; `audit.Appender.AppendTx` must be called inside the same transaction as the business write so a failed audit append rolls the write back. The `sync`, `auth`, `ai`, and `feedback` modules are internal in this phase and register no HTTP routes; `change_log` and `ship_seq` remain trigger-owned and are never written by application code.
+Ownership boundaries: the table owner is the only module allowed to write its rows. Cross-module reads go through interface methods (for example `ship.Service.TenantID`, `voyage.Service.Lookup`, `booking.Service.BookingExists`) and are re-checked for tenant/ship scope. Audit emission covers `staff`, `booking`, `guest`, and `auth` in this baseline; `audit.Appender.AppendTx` must be called inside the same transaction as the business write so a failed audit append rolls the write back. The `sync`, `ai`, and `feedback` modules are internal in this phase and register no HTTP routes; `auth` exposes public and protected `/api/auth/*` routes. `change_log` and `ship_seq` remain trigger-owned and are never written by application code.
 
 ### 3.3 Backend Responsibilities
 
@@ -211,11 +211,11 @@ Synchronization is based on a change log. The hub actively pulls and pushes data
 ### 7.2 Downstream Synchronization (Cloud to Hub)
 
 - The cloud writes to `change_log` in the same transaction as the data change. Each vessel has a `ship_seq` counter row updated in that same transaction. The row lock is held until commit, so `seq` order matches commit order and the hub cannot miss records.
-- The hub calls `GET /v1/sync/changes?after=<last_seq>`. Deletions use versioned tombstones.
+- The hub calls `GET /api/sync/changes?after=<last_seq>`. Deletions use versioned tombstones.
 - The hub writes each batch of changes and updates `last_seq` in the same SQLite transaction. Reapplying an old batch is harmless because of `version`.
 - Each batch includes `schema_version`. A hub that has not been upgraded rejects the batch and reports the issue.
 - A hub receives data only for its own vessel and the current voyage.
-- Change notification: a long-poll endpoint, `GET /v1/sync/wait?after=<seq>`, keeps the connection open for up to 30 seconds. API instances notify one another through ElastiCache pub/sub. If this channel fails, the hub polls every 60 seconds. Redis is only an optimization; RDS remains the source of truth.
+- Change notification: a long-poll endpoint, `GET /api/sync/wait?after=<seq>`, keeps the connection open for up to 30 seconds. API instances notify one another through ElastiCache pub/sub. If this channel fails, the hub polls every 60 seconds. Redis is only an optimization; RDS remains the source of truth.
 - The hub does not subscribe to SNS/SQS and does not hold AWS credentials.
 
 ### 7.3 Upstream Synchronization (Hub to Cloud)
@@ -314,20 +314,19 @@ Actual operational data (room-cleaning times and the rate at which supervisors m
 | --- | --- | --- |
 | Hub ↔ cloud | X.509 device certificate (mTLS) issued by Private CA, plus a short-lived access token containing `hub_id`, `ship_id`, and `epoch` | Yes |
 | iPad ↔ hub | No cloud authentication. The hub validates a registered device token; staff select their name and enter a short PIN so audit logs identify the responsible person | No |
-| Guest ↔ cloud | Custom OAuth: Authorization Code + PKCE with Google, Apple, or email OTP | Yes |
+| Guest ↔ cloud | Firebase SSO: Guest Mobile exchanges a Firebase ID Token for backend access and refresh tokens | Yes |
 | Guest ↔ hub | Cloud-signed boarding pass (QR); hub issues a local session associated with the booking, room, and device | No |
-| Fleet Console administrator | SSO OIDC with the company's identity provider, or email + Argon2id + TOTP | Yes |
+| Fleet Console administrator | Firebase SSO plus a backend administrator grant; Firebase claims never grant fleet authority | Yes |
 | Technician ↔ hub | Short-lived SSH certificates, password authentication disabled, remote access through a hub-initiated channel and subject to approval | Usually |
 
-### 10.2 Custom OAuth
+### 10.2 Firebase SSO
 
-- The backend verifies ID tokens using the provider's JWKS and maps `(provider, sub)` to an account.
-- Issue short-lived access JWTs (approximately 15 minutes) and rotate random refresh tokens on every use. Store their hashes in RDS. If reuse of an old refresh token is detected, revoke the entire token family.
-- Store asymmetric signing keys in KMS, expose a JWKS endpoint, and use `kid` for key rotation. Store the revocation list in Redis.
-- Use proven libraries (`golang.org/x/oauth2`, `go-oidc`, `golang-jwt`); do not implement cryptography yourself.
-- Apply login rate limits, temporary lockouts after repeated failed attempts, GDPR account deletion, and account linking when email addresses match.
-- Apple generally requires Sign in with Apple when an app offers third-party sign-in; verify the requirements at release time.
-- If multiple applications or partners later need a shared identity system, consider self-hosting Keycloak or Ory Hydra.
+- Firebase is the identity provider for Guest Mobile and Fleet Console. The backend verifies Firebase ID Tokens with the Firebase Admin SDK, including revocation checks, and maps the verified `uid` to an internal account through `account_identities` with `provider = 'firebase'`.
+- The backend issues short-lived RS256 access JWTs (at most 15 minutes) and rotates opaque refresh tokens on every use. Only the SHA-256 hash is stored in RDS. Reuse of a used or revoked token revokes the entire token family.
+- Staging and production sign tokens with KMS keys, publish public keys at `/api/auth/jwks`, and use `kid` for key rotation. Redis is required in every environment for shared authentication rate limits.
+- Unknown guest identities are provisioned on exchange. Fleet Console access requires an existing active administrator grant and is never auto-provisioned. Accounts are never merged by email; a verified email collision requires an explicit identity link.
+- Authentication events are audited, rate limits fail closed, and Firebase tokens are never stored or logged. See `docs/auth.md` for the full flow and client rules.
+- The onboard hub does not use Firebase or backend session tokens; its local offline authentication remains independent.
 
 ### 10.3 Keys and Certificates
 
@@ -453,7 +452,7 @@ Common columns: `id` (UUID v7), `ship_id`, `created_at`, `updated_at`, `version`
 
 ### 16.1 General Conventions
 
-REST following OpenAPI, `/v1` prefix, cursor-based pagination, a consistent error format, and an `Idempotency-Key` header for write operations. The hub also sends `X-Hub-Epoch` and `X-Schema-Version`.
+REST following OpenAPI, `/api` prefix, cursor-based pagination, a consistent error format, and an `Idempotency-Key` header for write operations. The hub also sends `X-Hub-Epoch` and `X-Schema-Version`.
 
 Important error codes: 409 for an outdated epoch, 426 when the hub needs a schema upgrade, and 429 when the rate limit is exceeded.
 
@@ -461,36 +460,36 @@ Important error codes: 409 for an outdated epoch, 426 when the hub needs a schem
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
-| `/v1/hub/enroll` | POST | At the factory: submit a CSR with a one-time code and receive a certificate |
-| `/v1/hub/token` | POST | Exchange a certificate for a short-lived access token |
-| `/v1/sync/snapshot?voyage_id=` | GET | Return a presigned URL, base `seq`, checksum, and signature |
-| `/v1/sync/changes?after=&limit=` | GET | Return a batch of changes ordered by `seq` |
-| `/v1/sync/wait?after=` | GET | Long-poll for up to 30 seconds; return when a new `seq` is available |
-| `/v1/sync/outbox` | POST | Push a batch of operational data and return an `ack` |
-| `/v1/hub/heartbeat` | POST | Send health metrics and `sync_lag` |
+| `/api/hub/enroll` | POST | At the factory: submit a CSR with a one-time code and receive a certificate |
+| `/api/hub/token` | POST | Exchange a certificate for a short-lived access token |
+| `/api/sync/snapshot?voyage_id=` | GET | Return a presigned URL, base `seq`, checksum, and signature |
+| `/api/sync/changes?after=&limit=` | GET | Return a batch of changes ordered by `seq` |
+| `/api/sync/wait?after=` | GET | Long-poll for up to 30 seconds; return when a new `seq` is available |
+| `/api/sync/outbox` | POST | Push a batch of operational data and return an `ack` |
+| `/api/hub/heartbeat` | POST | Send health metrics and `sync_lag` |
 
 ### 16.3 iPad Calls to Hub
 
 | Endpoint | Description |
 | --- | --- |
-| `POST /v1/auth/device-login` | Registered device token plus staff name and PIN; returns a local session |
-| `GET /v1/me/shifts` | My shift schedule |
-| `GET /v1/tasks`, `POST /v1/tasks/{id}/complete` | List tasks and mark a task as complete |
-| `POST /v1/shift-requests` | Submit a shift-change request using a structured form or free-form text |
-| `GET /v1/floors/{id}/guests/summary` | Guest count by deck |
-| `POST /v1/emergency/reassign` | Supervisor: request reassignment by area and role |
-| `POST /v1/assignments` | Supervisor: manual assignment, validated by the rule engine |
-| `GET /v1/events` | SSE: notifications and shift/task updates |
+| `POST /api/auth/device-login` | Registered device token plus staff name and PIN; returns a local session |
+| `GET /api/me/shifts` | My shift schedule |
+| `GET /api/tasks`, `POST /api/tasks/{id}/complete` | List tasks and mark a task as complete |
+| `POST /api/shift-requests` | Submit a shift-change request using a structured form or free-form text |
+| `GET /api/floors/{id}/guests/summary` | Guest count by deck |
+| `POST /api/emergency/reassign` | Supervisor: request reassignment by area and role |
+| `POST /api/assignments` | Supervisor: manual assignment, validated by the rule engine |
+| `GET /api/events` | SSE: notifications and shift/task updates |
 
 ### 16.4 Guest Mobile App
 
 | Location | Endpoint | Description |
 | --- | --- | --- |
-| Cloud | `/v1/auth/oauth/{provider}` | Authorization Code + PKCE; backend issues JWT and refresh token |
-| Cloud | `/v1/bookings`, `/v1/boarding-pass` | Create bookings and receive a signed boarding pass |
-| Hub | `POST /v1/guest/session` | Submit boarding pass and receive a local session |
-| Hub | `GET /v1/guest/room`, `GET /v1/guest/notifications` | Room information and notifications |
-| Hub | `GET/POST /v1/guest/services/bookings` | View and book services, with idempotency |
+| Cloud | `/api/auth/oauth/{provider}` | Authorization Code + PKCE; backend issues JWT and refresh token |
+| Cloud | `/api/bookings`, `/api/boarding-pass` | Create bookings and receive a signed boarding pass |
+| Hub | `POST /api/guest/session` | Submit boarding pass and receive a local session |
+| Hub | `GET /api/guest/room`, `GET /api/guest/notifications` | Room information and notifications |
+| Hub | `GET/POST /api/guest/services/bookings` | View and book services, with idempotency |
 
 ## 17. Detailed Synchronization Protocol
 

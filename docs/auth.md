@@ -26,7 +26,7 @@ must be linked to the account.
 
 ## 2. Authentication Modes
 
-`AUTH_MODE` selects how protected `/v1` routes resolve a principal.
+`AUTH_MODE` selects how protected `/api` routes resolve a principal.
 
 | Mode | Protected API credential | Use |
 |---|---|---|
@@ -60,17 +60,17 @@ lives in `internal/config/config.go`, so the auth service can trust validated co
 
 | Method | Path | Authentication | Purpose |
 |---|---|---|---|
-| `POST` | `/v1/auth/firebase/exchange` | Public | Exchange a Firebase ID Token for backend tokens. |
-| `POST` | `/v1/auth/refresh` | Public | Rotate a refresh token and issue new backend tokens. |
-| `POST` | `/v1/auth/logout` | Public | Revoke the current session family. |
-| `POST` | `/v1/auth/logout-all` | Backend access token | Revoke every session for the account. |
-| `POST` | `/v1/auth/identities/link` | Backend access token | Link a fresh Firebase identity to the account. |
-| `DELETE` | `/v1/auth/identities/{identityId}` | Backend access token | Unlink an identity from the account. |
-| `GET` | `/v1/auth/jwks` | Public | Publish public access-token verification keys. |
+| `POST` | `/api/auth/firebase/exchange` | Public | Exchange a Firebase ID Token for backend tokens. |
+| `POST` | `/api/auth/refresh` | Public | Rotate a refresh token and issue new backend tokens. |
+| `POST` | `/api/auth/logout` | Public | Revoke the current session family. |
+| `POST` | `/api/auth/logout-all` | Backend access token | Revoke every session for the account. |
+| `POST` | `/api/auth/identities/link` | Backend access token | Link a fresh Firebase identity to the account. |
+| `DELETE` | `/api/auth/identities/{identityId}` | Backend access token | Unlink an identity from the account. |
+| `GET` | `/api/auth/jwks` | Public | Publish public access-token verification keys. |
 
 ## 5. Exchange Flow
 
-`POST /v1/auth/firebase/exchange` is the only point where a Firebase ID Token is accepted.
+`POST /api/auth/firebase/exchange` is the only point where a Firebase ID Token is accepted.
 
 ```mermaid
 sequenceDiagram
@@ -80,7 +80,7 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant Limiter as Rate limiter
 
-    Client->>API: POST /v1/auth/firebase/exchange
+    Client->>API: POST /api/auth/firebase/exchange
     API->>Limiter: exchange limit per IP
     API->>FB: VerifyIDTokenAndCheckRevoked
     FB-->>API: verified uid / email / display name
@@ -100,7 +100,7 @@ sequenceDiagram
 ### 5.1 Request
 
 ```http
-POST /v1/auth/firebase/exchange
+POST /api/auth/firebase/exchange
 Content-Type: application/json
 ```
 
@@ -159,7 +159,7 @@ are marked `Cache-Control: no-store`.
 Clients send only the backend access token:
 
 ```http
-GET /v1/ships
+GET /api/ships
 Authorization: Bearer <backend-access-token>
 ```
 
@@ -189,7 +189,7 @@ Firebase custom claims are never copied into the principal.
 
 ## 7. Refresh Flow
 
-`POST /v1/auth/refresh` rotates the refresh token on every successful call.
+`POST /api/auth/refresh` rotates the refresh token on every successful call.
 
 ```mermaid
 sequenceDiagram
@@ -197,7 +197,7 @@ sequenceDiagram
     participant API as Backend
     participant DB as PostgreSQL
 
-    Client->>API: POST /v1/auth/refresh {refresh_token}
+    Client->>API: POST /api/auth/refresh {refresh_token}
     API->>API: hash token; apply IP and session limits
     API->>DB: lookup token hash
     alt token already used or revoked
@@ -232,7 +232,7 @@ reuse and revokes the family.
 
 ### 8.1 Logout
 
-`POST /v1/auth/logout` takes the current refresh token and revokes its entire session family.
+`POST /api/auth/logout` takes the current refresh token and revokes its entire session family.
 
 ```json
 {"refresh_token": "<current-refresh-token>"}
@@ -243,7 +243,7 @@ or already-revoked tokens. It does not call Firebase and does not sign the user 
 
 ### 8.2 Logout all sessions
 
-`POST /v1/auth/logout-all` requires a backend access token. It revokes every refresh-token family for
+`POST /api/auth/logout-all` requires a backend access token. It revokes every refresh-token family for
 the authenticated account, including Guest Mobile and Fleet Console sessions for that account. Other
 accounts are unaffected. It is idempotent and returns `204`.
 
@@ -256,7 +256,7 @@ principal, never from the request body.
 
 ### 9.1 Link
 
-`POST /v1/auth/identities/link` accepts a freshly verified Firebase ID Token:
+`POST /api/auth/identities/link` accepts a freshly verified Firebase ID Token:
 
 ```json
 {"firebase_id_token": "<fresh-firebase-id-token>"}
@@ -275,7 +275,7 @@ account receives `409 identity_link_required` on exchange and must use this expl
 
 ### 9.2 Unlink
 
-`DELETE /v1/auth/identities/{identityId}` removes an identity owned by the authenticated account.
+`DELETE /api/auth/identities/{identityId}` removes an identity owned by the authenticated account.
 
 Behavior:
 
@@ -290,7 +290,7 @@ Access tokens are signed with RS256. The JWT header carries the key identifier (
 - Development/test may use a local RSA key file or an in-memory random key.
 - Staging/production must use KMS keys configured through `AUTH_SIGNING_KMS_KEYS`; the active key is
   selected by `AUTH_SIGNING_ACTIVE_KID`.
-- `GET /v1/auth/jwks` publishes public RSA parameters (`kty`, `kid`, `use`, `alg`, `n`, `e`) for the
+- `GET /api/auth/jwks` publishes public RSA parameters (`kty`, `kid`, `use`, `alg`, `n`, `e`) for the
   active key and any retained rotation keys. Private material is never exposed.
 - JWKS is publicly cacheable (`Cache-Control: public, max-age=300`).
 - During rotation, keep the previous public key available for at least the access-token lifetime
@@ -427,7 +427,7 @@ Set `AUTH_MODE=dev` and a non-empty `AUTH_DEV_PRINCIPALS`, then send the matchin
 
 ```bash
 curl -H "X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000" \
-  http://localhost:8080/v1/tenants
+  http://localhost:8080/api/tenants
 ```
 
 This bypasses the Firebase exchange flow and backend access tokens.

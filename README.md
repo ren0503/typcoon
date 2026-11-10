@@ -4,9 +4,12 @@ Production-ready Go backend for the yacht management platform. It includes the t
 (configuration, logging, database lifecycle, migrations, sqlc query generation, AWS integration
 points, HTTP health endpoints, graceful shutdown, containerization, and a minimal Terraform
 scaffold) and the `002-business-modules` increment: the 41-table business schema and REST modules
-`tenant`, `ship`, `voyage`, `staff`, `partner`, `booking`, and `guest` under `/v1`. The `sync`, `ai`,
-`feedback`, `auth`, and `audit` modules expose services only; they register no HTTP routes in this
-phase. See `specs/002-business-modules/` for the specification, contracts, and ownership map.
+`tenant`, `ship`, `voyage`, `staff`, `partner`, `booking`, and `guest` under `/api`. The `auth`
+module implements the Firebase SSO flow: public exchange, refresh, logout, and JWKS endpoints plus
+protected logout-all and identity link/unlink endpoints. The `sync`, `ai`, `feedback`, and `audit`
+modules expose services only; they register no HTTP routes. See `specs/002-business-modules/` for
+the business specification, contracts, and ownership map, and `specs/003-firebase-sso-auth/` for
+the authentication specification.
 
 ## Prerequisites
 
@@ -23,7 +26,7 @@ No AWS account or credentials are required for local development or tests.
 cp .env.example .env
 docker compose up -d postgres redis   # PostgreSQL and Redis; the API runs from source
 make sqlc                       # regenerate sqlc models/queries (already committed)
-make migrate-up                 # apply the foundation + 41-table business schema
+make migrate-up                 # apply the foundation, business schema, and auth schema
 make run                        # start the API on :8080
 ```
 
@@ -34,7 +37,7 @@ curl -i http://localhost:8080/health
 curl -i http://localhost:8080/ready
 ```
 
-Business endpoints live under `/v1` and require an authenticated principal. Local development uses
+Business endpoints live under `/api` and require an authenticated principal. Local development uses
 the explicit allowlist provider from `.env`:
 
 ```bash
@@ -42,7 +45,7 @@ AUTH_MODE=dev
 AUTH_DEV_PRINCIPALS=system:dev-1:00000000-0000-0000-0000-000000000000
 # then send: X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000
 curl -i -H "X-Dev-Principal: system:dev-1:00000000-0000-0000-0000-000000000000" \
-  http://localhost:8080/v1/tenants
+  http://localhost:8080/api/tenants
 ```
 
 `AUTH_MODE=dev` is rejected when `APP_ENV=production`. `AUTH_MODE=jwt` enables the Firebase SSO flow;
@@ -102,10 +105,13 @@ Technical endpoints:
 - `GET /ready` — readiness; pings PostgreSQL; returns `{"status":"ready"}` or HTTP 503
   `{"status":"not_ready"}`.
 
-Business endpoints under `/v1` (all behind default-deny authentication): tenants, ships/decks/areas/
+Business endpoints under `/api` (all behind default-deny authentication): tenants, ships/decks/areas/
 rooms, ports/voyages/port-calls, staff/leaves/credentials/shift templates/coverage/labor rules/
 autonomy policies, partners/contracts/staff/services/slots, bookings/service-bookings, and
-guests/boarding-passes. Cursor pagination uses `limit` and `cursor`; the response envelope is
+guests/boarding-passes. The auth module also mounts public `/api/auth/firebase/exchange`,
+`/api/auth/refresh`, `/api/auth/logout`, and `/api/auth/jwks` endpoints plus protected
+`/api/auth/logout-all` and `/api/auth/identities/*` endpoints. Cursor pagination uses `limit` and
+`cursor`; the response envelope is
 `{"data": [...], "meta": {"next_cursor": ...}}`. Mutating booking and service-booking requests accept
 an `Idempotency-Key` header. Internal tables (`change_log`, `ship_seq`, `refresh_tokens`, `audit_log`,
 `ops_events`, `snapshots`, `job_runs`) deliberately expose no CRUD routes.
@@ -120,8 +126,9 @@ PostgreSQL is accessed through `pgxpool`. Migrations are managed by Goose and em
 separate step.
 
 `00001` is a no-op technical migration that proves the pipeline. `00002_business_schema.sql` adds the
-41-table business schema from `docs/schema.sql`, including triggers and exclusion constraints. Keep
-`db/schema.sql`, the migration, and `docs/schema.sql` in sync.
+41-table business schema from `docs/schema.sql`, including triggers and exclusion constraints.
+`00003_firebase_sso_auth.sql` adds the Firebase SSO account, identity, admin, and refresh-token
+schema. Keep `db/schema.sql`, the migrations, and `docs/schema.sql` in sync.
 
 ## Database Access Generation
 
@@ -173,7 +180,7 @@ internal/            Private application packages
   sync/              Device/credential/snapshot/job lifecycle (no HTTP routes)
   ai/                AI parameter metadata (no HTTP routes)
   feedback/          Feedback responses and insights (no HTTP routes)
-  auth/              Principal provider and account reference service
+  auth/              Firebase SSO, backend tokens, principal provider, and account service
   audit/             Audit appender (same-transaction emission)
   ownership/         Table-to-module ownership map and CI guard
   httpx/             Shared JSON/error/pagination handler helpers
@@ -199,9 +206,11 @@ terraform/           Minimal AWS infrastructure scaffold
 ## Scope
 
 The `002-business-modules` increment implements the business schema and REST modules listed above.
-It intentionally excludes token issuance/JWT verification workflows (dev allowlist only), sync
+The `003-firebase-sso-auth` increment adds Firebase SSO, backend-issued access and refresh tokens,
+JWKS publication, shared Redis rate limits, and auth audit events. The project still excludes sync
 transport, AI signing/execution workflows, metrics, tracing, and profiling. See
-`specs/002-business-modules/spec.md` and `specs/001-backend-foundation/spec.md` for details.
+`specs/002-business-modules/spec.md`, `specs/003-firebase-sso-auth/spec.md`, and
+`specs/001-backend-foundation/spec.md` for details.
 
 ## Troubleshooting
 
