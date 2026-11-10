@@ -144,7 +144,7 @@ func buildRateLimiter(ctx context.Context, cfg *config.Config) (auth.RateLimiter
 		_ = client.Close()
 		return nil, fmt.Errorf("connect Redis rate limiter: %w", err)
 	}
-	limiter, err := auth.NewRedisRateLimiterWithTimeout(client, cfg.Auth.RateLimit.RedisPrefix, redisTimeout)
+	limiter, err := auth.NewRedisRateLimiter(client, cfg.Auth.RateLimit.RedisPrefix)
 	if err != nil {
 		_ = client.Close()
 		return nil, err

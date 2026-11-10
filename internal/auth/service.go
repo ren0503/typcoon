@@ -176,10 +176,10 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 		return IssuedSession{}, err
 	}
 	client = stored.Client
-	if stored.SubjectType != "account" || !validClient(stored.Client) {
+	now := s.clock.Now().UTC()
+	if (stored.SubjectType != "account" || !validClient(stored.Client)) || !now.Before(stored.ExpiresAt) {
 		return IssuedSession{}, ErrAuthenticationFailed
 	}
-	now := s.clock.Now().UTC()
 	refreshedEntry, reuseEntry, err := buildRefreshAuditEntries(stored)
 	if err != nil {
 		return IssuedSession{}, err
@@ -190,9 +190,6 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 		return IssuedSession{}, mapRefreshError(rotateErr)
 	}
 
-	if !now.Before(stored.ExpiresAt) {
-		return IssuedSession{}, ErrAuthenticationFailed
-	}
 	account, err := s.loadActiveAccount(ctx, stored.SubjectID)
 	if err != nil {
 		return IssuedSession{}, err
@@ -280,8 +277,9 @@ func mapRefreshError(err error) error {
 }
 
 func (s *service) Logout(ctx context.Context, refreshToken string) (err error) {
-	client := ""
+	var client string
 	defer func() { s.logOperation("logout", client, err) }()
+	
 	rawToken := strings.TrimSpace(refreshToken)
 	if rawToken == "" {
 		return nil

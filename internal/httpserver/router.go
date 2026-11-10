@@ -33,7 +33,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 	handlers.Register(r, cfg.DB, cfg.Logger)
 
 	if cfg.PublicAPIRoutes != nil || cfg.APIRoutes != nil {
-		r.Route("/v1", func(r chi.Router) {
+		r.Route("/api", func(r chi.Router) {
 			if cfg.PublicAPIRoutes != nil {
 				cfg.PublicAPIRoutes(r)
 			}
