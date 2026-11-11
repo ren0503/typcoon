@@ -46,6 +46,7 @@ var TableOwner = map[string]Module{
 	"decks":                 ModuleShip,
 	"areas":                 ModuleShip,
 	"rooms":                 ModuleShip,
+	"ship_structure_imports": ModuleShip,
 	"ports":                 ModuleVoyage,
 	"voyages":               ModuleVoyage,
 	"port_calls":            ModuleVoyage,

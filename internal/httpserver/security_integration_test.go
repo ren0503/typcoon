@@ -83,25 +83,25 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 		return httpResult{Status: rec.Code, Body: rec.Body.Bytes()}
 	}
 
-	if res := do(http.MethodGet, "/v1/ships", "", nil); res.Status != http.StatusUnauthorized {
+	if res := do(http.MethodGet, "/api/ships", "", nil); res.Status != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated status = %d, want 401", res.Status)
 	} else if code := errorCode(res.decode(t)); code != "unauthorized" {
 		t.Fatalf("unauthenticated code = %q", code)
 	}
-	if res := do(http.MethodGet, "/v1/ships", "admin:unknown:"+tenantA.String(), nil); res.Status != http.StatusUnauthorized {
+	if res := do(http.MethodGet, "/api/ships", "admin:unknown:"+tenantA.String(), nil); res.Status != http.StatusUnauthorized {
 		t.Fatalf("unknown principal status = %d, want 401", res.Status)
 	}
 
-	if res := do(http.MethodGet, "/v1/ships/"+shipB.String(), tokenA, nil); res.Status != http.StatusForbidden {
+	if res := do(http.MethodGet, "/api/ships/"+shipB.String(), tokenA, nil); res.Status != http.StatusForbidden {
 		t.Fatalf("cross-tenant read status = %d, want 403", res.Status)
 	} else if code := errorCode(res.decode(t)); code != "forbidden" {
 		t.Fatalf("cross-tenant code = %q", code)
 	}
-	if res := do(http.MethodGet, "/v1/ships/"+shipA.String(), tokenA, nil); res.Status != http.StatusOK {
+	if res := do(http.MethodGet, "/api/ships/"+shipA.String(), tokenA, nil); res.Status != http.StatusOK {
 		t.Fatalf("own-tenant read status = %d, want 200", res.Status)
 	}
 
-	res := do(http.MethodGet, "/v1/ships", tokenA, nil)
+	res := do(http.MethodGet, "/api/ships", tokenA, nil)
 	if res.Status != http.StatusOK {
 		t.Fatalf("list ships status = %d", res.Status)
 	}
@@ -114,25 +114,25 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 		t.Fatalf("tenant A saw ship %s, want %s", id, shipA)
 	}
 
-	if res := do(http.MethodGet, "/v1/voyages/"+voyageB.String(), shipToken, nil); res.Status != http.StatusForbidden {
+	if res := do(http.MethodGet, "/api/voyages/"+voyageB.String(), shipToken, nil); res.Status != http.StatusForbidden {
 		t.Fatalf("ship-scoped foreign voyage status = %d, want 403", res.Status)
 	}
-	if res := do(http.MethodGet, "/v1/voyages/"+voyageA.String(), shipToken, nil); res.Status != http.StatusOK {
+	if res := do(http.MethodGet, "/api/voyages/"+voyageA.String(), shipToken, nil); res.Status != http.StatusOK {
 		t.Fatalf("ship-scoped own voyage status = %d, want 200", res.Status)
 	}
 
-	if res := do(http.MethodGet, "/v1/ships?cursor=not-a-cursor", tokenA, nil); res.Status != http.StatusBadRequest {
+	if res := do(http.MethodGet, "/api/ships?cursor=not-a-cursor", tokenA, nil); res.Status != http.StatusBadRequest {
 		t.Fatalf("malformed cursor status = %d, want 400", res.Status)
 	} else if code := errorCode(res.decode(t)); code != "invalid_cursor" {
 		t.Fatalf("malformed cursor code = %q", code)
 	}
 	foreignCursor := pagination.Cursor{Filter: "other-filter", ID: uuid.New()}.Encode()
-	if res := do(http.MethodGet, "/v1/ships?cursor="+foreignCursor, tokenA, nil); res.Status != http.StatusBadRequest {
+	if res := do(http.MethodGet, "/api/ships?cursor="+foreignCursor, tokenA, nil); res.Status != http.StatusBadRequest {
 		t.Fatalf("foreign-filter cursor status = %d, want 400", res.Status)
 	} else if code := errorCode(res.decode(t)); code != "invalid_cursor" {
 		t.Fatalf("foreign-filter cursor code = %q", code)
 	}
-	if res := do(http.MethodGet, "/v1/ships?limit=500", tokenA, nil); res.Status != http.StatusOK {
+	if res := do(http.MethodGet, "/api/ships?limit=500", tokenA, nil); res.Status != http.StatusOK {
 		t.Fatalf("limit 500 status = %d, want 200", res.Status)
 	}
 
@@ -142,7 +142,7 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 		"full_name":    "Secret Guest",
 		"document_enc": documentEnc,
 	})
-	res = do(http.MethodPost, "/v1/bookings/"+bookingA.String()+"/guests", tokenA, guestBody)
+	res = do(http.MethodPost, "/api/bookings/"+bookingA.String()+"/guests", tokenA, guestBody)
 	if res.Status != http.StatusCreated {
 		t.Fatalf("create guest status = %d body=%s", res.Status, res.Body)
 	}
@@ -151,7 +151,7 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 	}
 	created := res.decode(t)
 	guestID, _ := created["id"].(string)
-	res = do(http.MethodGet, "/v1/guests/"+guestID, tokenA, nil)
+	res = do(http.MethodGet, "/api/guests/"+guestID, tokenA, nil)
 	if res.Status != http.StatusOK {
 		t.Fatalf("read guest status = %d", res.Status)
 	}
@@ -163,7 +163,7 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 		"full_name": "Plaintext Guest",
 		"document":  "passport-secret",
 	})
-	res = do(http.MethodPost, "/v1/bookings/"+bookingA.String()+"/guests", tokenA, plaintextBody)
+	res = do(http.MethodPost, "/api/bookings/"+bookingA.String()+"/guests", tokenA, plaintextBody)
 	if res.Status != http.StatusUnprocessableEntity {
 		t.Fatalf("plaintext document status = %d, want 422 body=%s", res.Status, res.Body)
 	}

@@ -21,12 +21,12 @@ func TestStaffModuleValidationAndCredentials(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Staff Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)
 	}
-	svc := staff.New(h.Pool, shipSvc, nil)
+	svc := staff.New(h.Pool, testutil.Logger(t), shipSvc, nil)
 
 	member, err := svc.CreateStaff(ctx, principal, staff.StaffInput{
 		ShipID: &shipRow.ID, EmployeeCode: "EMP-1", FullName: "Ada Crew", Department: "security",

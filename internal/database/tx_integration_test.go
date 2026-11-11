@@ -34,8 +34,8 @@ func TestFailedMultiWriteRollsBackAndLeavesNoChangeLog(t *testing.T) {
 	voyageID := h.SeedVoyage(t, shipID, "TX-1", departure)
 	accountID := h.SeedAccount(t)
 
-	shipSvc := ship.New(h.Pool)
-	voyageSvc := voyage.New(h.Pool, shipSvc)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
+	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
 	accountSvc := auth.NewAccountService(h.Pool)
 	input := booking.BookingInput{
 		ShipID: shipID, VoyageID: voyageID, AccountID: &accountID,
@@ -51,7 +51,7 @@ func TestFailedMultiWriteRollsBackAndLeavesNoChangeLog(t *testing.T) {
 	assertCount(t, h, `SELECT count(*) FROM audit_log`, 0)
 	assertCount(t, h, `SELECT count(*) FROM change_log WHERE ship_id = $1`, 0, shipID)
 
-	success := booking.New(h.Pool, shipSvc, voyageSvc, nil, accountSvc, audit.NewStore(h.Pool))
+	success := booking.New(h.Pool, shipSvc, voyageSvc, nil, accountSvc, audit.NewStore(h.Pool, testutil.Logger(t)))
 	row, err := success.CreateBooking(ctx, principal, input)
 	if err != nil {
 		t.Fatalf("create booking with audit: %v", err)

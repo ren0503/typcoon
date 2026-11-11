@@ -523,6 +523,32 @@ type ShipSeq struct {
 	LastSeq int64     `json:"last_seq"`
 }
 
+type ShipStructureImport struct {
+	ID               uuid.UUID       `json:"id"`
+	ShipID           uuid.UUID       `json:"ship_id"`
+	IdempotencyKey   *string         `json:"idempotency_key"`
+	Status           string          `json:"status"`
+	FileName         string          `json:"file_name"`
+	FileSizeBytes    int64           `json:"file_size_bytes"`
+	FileSha256       string          `json:"file_sha256"`
+	DecksTotal       int32           `json:"decks_total"`
+	DecksValid       int32           `json:"decks_valid"`
+	DecksInvalid     int32           `json:"decks_invalid"`
+	AreasTotal       int32           `json:"areas_total"`
+	AreasValid       int32           `json:"areas_valid"`
+	AreasInvalid     int32           `json:"areas_invalid"`
+	RoomsTotal       int32           `json:"rooms_total"`
+	RoomsValid       int32           `json:"rooms_valid"`
+	RoomsInvalid     int32           `json:"rooms_invalid"`
+	ValidatedPayload []byte          `json:"validated_payload"`
+	ValidationErrors json.RawMessage `json:"validation_errors"`
+	ErrorMessage     *string         `json:"error_message"`
+	CreatedBy        *string         `json:"created_by"`
+	CreatedAt        time.Time       `json:"created_at"`
+	UpdatedAt        time.Time       `json:"updated_at"`
+	CompletedAt      *time.Time      `json:"completed_at"`
+}
+
 type Snapshot struct {
 	ID            uuid.UUID     `json:"id"`
 	ShipID        uuid.UUID     `json:"ship_id"`

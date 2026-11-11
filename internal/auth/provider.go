@@ -41,11 +41,11 @@ type DevHeaderProvider struct {
 func NewDevHeaderProvider(entries []string) (*DevHeaderProvider, error) {
 	allowed := make(map[string]Principal, len(entries))
 	for _, entry := range entries {
-		principal, id, err := parseDevEntry(entry)
+		principal, _, err := parseDevEntry(entry)
 		if err != nil {
 			return nil, err
 		}
-		allowed[id] = principal
+		allowed[strings.TrimSpace(entry)] = principal
 	}
 	return &DevHeaderProvider{allowed: allowed}, nil
 }

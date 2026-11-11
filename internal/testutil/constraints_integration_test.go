@@ -26,12 +26,12 @@ func TestConstraintMatrixSurfacesMappedErrors(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
 	baseShip := h.SeedShip(t, tenantID)
 	deckID := h.SeedDeck(t, baseShip, 1)
-	voyageSvc := voyage.New(h.Pool, shipSvc)
-	auditStore := audit.NewStore(h.Pool)
-	staffSvc := staff.New(h.Pool, shipSvc, auditStore)
+	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
+	auditStore := audit.NewStore(h.Pool, testutil.Logger(t))
+	staffSvc := staff.New(h.Pool, testutil.Logger(t), shipSvc, auditStore)
 	partnerSvc := partner.New(h.Pool, shipSvc)
 	bookingSvc := booking.New(h.Pool, shipSvc, voyageSvc, partnerSvc, auth.NewAccountService(h.Pool), auditStore)
 

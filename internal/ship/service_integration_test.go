@@ -19,7 +19,7 @@ func TestShipModuleCRUDAndConstraints(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	svc := ship.New(h.Pool)
+	svc := ship.New(h.Pool, testutil.Logger(t), nil)
 
 	imo := "IMO1234567"
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Oceanic", ImoNumber: &imo, Timezone: "Europe/Lisbon"})

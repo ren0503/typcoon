@@ -133,8 +133,8 @@ func (q *Queries) CreateRoom(ctx context.Context, arg CreateRoomParams) (Room, e
 }
 
 const createShip = `-- name: CreateShip :one
-INSERT INTO ships (id, tenant_id, name, imo_number, flag_state, timezone)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO ships (id, tenant_id, name, imo_number, flag_state, timezone, status)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING id, tenant_id, name, imo_number, flag_state, timezone, status, created_at, updated_at, version, deleted_at
 `
 
@@ -145,6 +145,7 @@ type CreateShipParams struct {
 	ImoNumber *string   `json:"imo_number"`
 	FlagState *string   `json:"flag_state"`
 	Timezone  string    `json:"timezone"`
+	Status    string    `json:"status"`
 }
 
 func (q *Queries) CreateShip(ctx context.Context, arg CreateShipParams) (Ship, error) {
@@ -155,6 +156,7 @@ func (q *Queries) CreateShip(ctx context.Context, arg CreateShipParams) (Ship, e
 		arg.ImoNumber,
 		arg.FlagState,
 		arg.Timezone,
+		arg.Status,
 	)
 	var i Ship
 	err := row.Scan(

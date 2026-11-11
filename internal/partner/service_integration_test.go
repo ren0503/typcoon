@@ -21,7 +21,7 @@ func TestPartnerContractAndSlotRules(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Partner Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)

@@ -29,6 +29,7 @@ var models = []modelSpec{
 	{"decks", &sqlc.Deck{}},
 	{"areas", &sqlc.Area{}},
 	{"rooms", &sqlc.Room{}},
+	{"ship_structure_imports", &sqlc.ShipStructureImport{}},
 	{"ports", &sqlc.Port{}},
 	{"voyages", &sqlc.Voyage{}},
 	{"port_calls", &sqlc.PortCall{}},
@@ -72,8 +73,8 @@ func TestGeneratedModelsMatchSchema(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	if len(models) != 41 {
-		t.Fatalf("model map covers %d tables, want 41", len(models))
+	if len(models) != 42 {
+		t.Fatalf("model map covers %d tables, want 42", len(models))
 	}
 
 	for _, spec := range models {
@@ -140,7 +141,7 @@ func modelFields(t *testing.T, model any) map[string]reflect.Type {
 }
 
 func isNullableGoType(t reflect.Type) bool {
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Ptr || t.Kind() == reflect.Slice {
 		return true
 	}
 	name := t.Name()

@@ -24,12 +24,12 @@ func TestBookingIdempotencyOverlapAndImmutability(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Booking Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)
 	}
-	voyageSvc := voyage.New(h.Pool, shipSvc)
+	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
 	departure := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
 	v, err := voyageSvc.CreateVoyage(ctx, principal, voyage.VoyageInput{
 		ShipID: shipRow.ID, Code: "BOOK-1", DepartureAt: departure, ArrivalAt: departure.Add(24 * time.Hour),

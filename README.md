@@ -3,7 +3,7 @@
 Production-ready Go backend for the yacht management platform. It includes the technical foundation
 (configuration, logging, database lifecycle, migrations, sqlc query generation, AWS integration
 points, HTTP health endpoints, graceful shutdown, containerization, and a minimal Terraform
-scaffold) and the `002-business-modules` increment: the 41-table business schema and REST modules
+scaffold) and the `002-business-modules` increment plus `004-ship-structure-import`: the 42-table business schema and REST modules
 `tenant`, `ship`, `voyage`, `staff`, `partner`, `booking`, and `guest` under `/api`. The `auth`
 module implements the Firebase SSO flow: public exchange, refresh, logout, and JWKS endpoints plus
 protected logout-all and identity link/unlink endpoints. The `sync`, `ai`, `feedback`, and `audit`
@@ -106,12 +106,14 @@ Technical endpoints:
   `{"status":"not_ready"}`.
 
 Business endpoints under `/api` (all behind default-deny authentication): tenants, ships/decks/areas/
-rooms, ports/voyages/port-calls, staff/leaves/credentials/shift templates/coverage/labor rules/
+rooms plus ship structure import upload/preview/confirm/status and the import template,
+ports/voyages/port-calls, staff/leaves/credentials/shift templates/coverage/labor rules/
 autonomy policies, partners/contracts/staff/services/slots, bookings/service-bookings, and
 guests/boarding-passes. The auth module also mounts public `/api/auth/firebase/exchange`,
 `/api/auth/refresh`, `/api/auth/logout`, and `/api/auth/jwks` endpoints plus protected
-`/api/auth/logout-all` and `/api/auth/identities/*` endpoints. Cursor pagination uses `limit` and
-`cursor`; the response envelope is
+`/api/auth/logout-all` and `/api/auth/identities/*` endpoints. Ship structure imports accept `.xlsx` workbooks up to 10 MiB and
+5,000 rows per sheet; uploads validate synchronously and confirmation is atomic. Cursor pagination
+uses `limit` and `cursor`; the response envelope is
 `{"data": [...], "meta": {"next_cursor": ...}}`. Mutating booking and service-booking requests accept
 an `Idempotency-Key` header. Internal tables (`change_log`, `ship_seq`, `refresh_tokens`, `audit_log`,
 `ops_events`, `snapshots`, `job_runs`) deliberately expose no CRUD routes.
@@ -128,7 +130,8 @@ separate step.
 `00001` is a no-op technical migration that proves the pipeline. `00002_business_schema.sql` adds the
 41-table business schema from `docs/schema.sql`, including triggers and exclusion constraints.
 `00003_firebase_sso_auth.sql` adds the Firebase SSO account, identity, admin, and refresh-token
-schema. Keep `db/schema.sql`, the migrations, and `docs/schema.sql` in sync.
+schema. `00004_ship_structure_imports.sql` adds the cloud-only `ship_structure_imports` history table
+(42 tables total). Keep `db/schema.sql`, the migrations, and `docs/schema.sql` in sync.
 
 ## Database Access Generation
 

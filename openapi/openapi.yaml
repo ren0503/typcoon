@@ -1,9 +1,9 @@
 openapi: "3.0.3"
 info:
-  title: Yacht Management System — Business API (/v1)
+  title: Yacht Management System — Business API (/api)
   version: "0.1.0"
   description: |
-    Initial business-layer API foundation for feature `002-business-modules`.
+    Business-layer API. The canonical runtime prefix is `/api`.
 
     Conventions (binding unless overridden per endpoint):
       * All business endpoints are default-deny; requests must resolve an authenticated
@@ -22,6 +22,8 @@ info:
         422 violations (code `invalid_reference` / `not_found`).
       * Sensitive fields (guest documents, emergency contacts, token/PIN hashes) are
         never present in responses.
+servers:
+  - url: /api
 paths:
   /tenants:
     get: &list-generic     { tags: [tenant], summary: List tenants, parameters: [{$ref: '#/components/parameters/Limit'}, {$ref: '#/components/parameters/Cursor'}], responses: {200: {$ref: '#/components/responses/TenantPage'}, 400: {$ref: '#/components/responses/BadRequest'}, 401: {$ref: '#/components/responses/Unauthorized'}} }
@@ -277,6 +279,93 @@ paths:
               schema: {$ref: '#/components/schemas/JWKS'}
         503: {$ref: '#/components/responses/AuthUnavailable'}
 
+  /ships/structure/import-template:
+    get:
+      tags: [ship-import]
+      summary: Download the structure import XLSX template
+      responses:
+        200:
+          description: XLSX template
+          headers:
+            Content-Disposition:
+              schema: {type: string}
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: {type: string, format: binary}
+        401: {$ref: '#/components/responses/Unauthorized'}
+  /ships/{shipId}/structure/imports:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+    post:
+      tags: [ship-import]
+      summary: Upload and synchronously validate a structure workbook
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: {type: string, format: binary}
+      responses:
+        201:
+          description: Import created and validated
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportPreview'}
+        400: {$ref: '#/components/responses/BadRequest'}
+        401: {$ref: '#/components/responses/Unauthorized'}
+        404: {$ref: '#/components/responses/NotFound'}
+        409: {$ref: '#/components/responses/Conflict'}
+        413: {$ref: '#/components/responses/PayloadTooLarge'}
+  /ships/{shipId}/structure/imports/{importId}:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+      - $ref: '#/components/parameters/ImportId'
+    get:
+      tags: [ship-import]
+      summary: Get import status
+      responses:
+        200:
+          description: Import status
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ShipStructureImport'}
+        404: {$ref: '#/components/responses/NotFound'}
+  /ships/{shipId}/structure/imports/{importId}/preview:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+      - $ref: '#/components/parameters/ImportId'
+    get:
+      tags: [ship-import]
+      summary: Get the validation preview
+      responses:
+        200:
+          description: Import preview
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ImportPreview'}
+        404: {$ref: '#/components/responses/NotFound'}
+  /ships/{shipId}/structure/imports/{importId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+      - $ref: '#/components/parameters/ImportId'
+    post:
+      tags: [ship-import]
+      summary: Confirm a ready import and persist all structure atomically
+      responses:
+        200:
+          description: Completed import
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ShipStructureImport'}
+        404: {$ref: '#/components/responses/NotFound'}
+        409: {$ref: '#/components/responses/ImportNotConfirmable'}
+        500: {$ref: '#/components/responses/InternalError'}
+
 components:
   securitySchemes:
     principal: { type: http, scheme: bearer, bearerFormat: opaque-token-or-dev-principal, description: 'Default-deny; dev principal provider only for non-production configuration.' }
@@ -293,6 +382,7 @@ components:
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: string, format: uuid}}
     ShipId: {name: shipId, in: path, required: true, schema: {type: string, format: uuid}}
+    ImportId: {name: importId, in: path, required: true, schema: {type: string, format: uuid}}
     VoyageId: {name: voyageId, in: path, required: true, schema: {type: string, format: uuid}}
     BookingId: {name: bookingId, in: path, required: true, schema: {type: string, format: uuid}}
     PartnerId: {name: partnerId, in: path, required: true, schema: {type: string, format: uuid}}
@@ -314,9 +404,96 @@ components:
     TenantInput: {type: object, required: [name], properties: {name: {type: string, maxLength: 255}}}
     TenantUpdate: {type: object, properties: {name: {type: string, maxLength: 255}}}
     Tenant: {type: object, properties: {id: {type: string, format: uuid}, name: {type: string}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}, version: {type: integer}}}
-    ShipInput: {type: object, required: [name], properties: {name: {type: string}, imo_number: {type: string, nullable: true}, flag_state: {type: string, nullable: true}, timezone: {type: string, default: UTC}}}
+    ShipInput: {type: object, required: [name], properties: {name: {type: string}, imo_number: {type: string, nullable: true}, flag_state: {type: string, nullable: true}, timezone: {type: string, default: UTC}, status: {type: string, enum: [active, maintenance, retired], default: active}}}
     ShipUpdate: {type: object, properties: {name: {type: string}, flag_state: {type: string, nullable: true}, timezone: {type: string}, status: {type: string, enum: [active, maintenance, retired]}}}
-    Ship: {type: object, properties: {id: {type: string, format: uuid}, name: {type: string}, imo_number: {type: string, nullable: true}, flag_state: {type: string, nullable: true}, timezone: {type: string}, status: {type: string, enum: [active, maintenance, retired]}}}
+    Ship: {type: object, properties: {id: {type: string, format: uuid}, tenant_id: {type: string, format: uuid}, name: {type: string}, imo_number: {type: string, nullable: true}, flag_state: {type: string, nullable: true}, timezone: {type: string}, status: {type: string, enum: [active, maintenance, retired]}, created_at: {type: string, format: date-time}, updated_at: {type: string, format: date-time}, version: {type: integer}, deleted_at: {type: string, format: date-time, nullable: true}}}
+    ImportEntityCounts:
+      type: object
+      required: [total, valid, invalid]
+      properties:
+        total: {type: integer, minimum: 0}
+        valid: {type: integer, minimum: 0}
+        invalid: {type: integer, minimum: 0}
+    ImportCounts:
+      type: object
+      required: [decks, areas, rooms]
+      properties:
+        decks: {$ref: '#/components/schemas/ImportEntityCounts'}
+        areas: {$ref: '#/components/schemas/ImportEntityCounts'}
+        rooms: {$ref: '#/components/schemas/ImportEntityCounts'}
+    ValidationFinding:
+      type: object
+      required: [sheet, row, column, code, message]
+      properties:
+        sheet: {type: string}
+        row: {type: integer, minimum: 0}
+        column: {type: string}
+        code: {type: string}
+        message: {type: string}
+    ImportedDeck:
+      type: object
+      required: [level, name]
+      properties:
+        level: {type: integer, minimum: 0}
+        name: {type: string}
+    ImportedArea:
+      type: object
+      required: [deck_level, name, area_type]
+      properties:
+        deck_level: {type: integer, minimum: 0}
+        name: {type: string}
+        area_type: {type: string}
+        capacity: {type: integer, minimum: 0, nullable: true}
+        layout: {nullable: true}
+    ImportedRoom:
+      type: object
+      required: [deck_level, number, room_type, capacity, is_bookable]
+      properties:
+        deck_level: {type: integer, minimum: 0}
+        number: {type: string}
+        room_type: {type: string}
+        capacity: {type: integer, minimum: 1, maximum: 32767}
+        is_bookable: {type: boolean}
+        layout: {nullable: true}
+    ImportRecords:
+      type: object
+      required: [decks, areas, rooms]
+      properties:
+        decks: {type: array, items: {$ref: '#/components/schemas/ImportedDeck'}}
+        areas: {type: array, items: {$ref: '#/components/schemas/ImportedArea'}}
+        rooms: {type: array, items: {$ref: '#/components/schemas/ImportedRoom'}}
+    ImportFile:
+      type: object
+      required: [name, size_bytes, sha256]
+      properties:
+        name: {type: string}
+        size_bytes: {type: integer, format: int64, minimum: 0}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+    ShipStructureImport:
+      type: object
+      required: [id, ship_id, status, file, counts, can_confirm, timestamps]
+      properties:
+        id: {type: string, format: uuid}
+        ship_id: {type: string, format: uuid}
+        status: {type: string, enum: [uploaded, validating, ready, failed, processing, completed]}
+        file: {$ref: '#/components/schemas/ImportFile'}
+        counts: {$ref: '#/components/schemas/ImportCounts'}
+        can_confirm: {type: boolean}
+        error_summary: {type: string, nullable: true}
+        timestamps:
+          type: object
+          required: [created_at, updated_at]
+          properties:
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+            completed_at: {type: string, format: date-time, nullable: true}
+    ImportPreview:
+      type: object
+      required: [import, records, errors]
+      properties:
+        import: {$ref: '#/components/schemas/ShipStructureImport'}
+        records: {$ref: '#/components/schemas/ImportRecords'}
+        errors: {type: array, items: {$ref: '#/components/schemas/ValidationFinding'}}
     DeckInput: {type: object, required: [level, name], properties: {level: {type: integer}, name: {type: string}}}
     DeckUpdate: {type: object, properties: {name: {type: string}}}
     Deck: {type: object, properties: {id: {type: string, format: uuid}, ship_id: {type: string, format: uuid}, level: {type: integer}, name: {type: string}}}
@@ -551,11 +728,21 @@ components:
     GuestPage: {description: Page of guests, content: {application/json: {schema: {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/Guest'}}, meta: {$ref: '#/components/schemas/CollectionMeta'}}}}}}
     BoardingPass: {description: Boarding pass resource, content: {application/json: {schema: {$ref: '#/components/schemas/BoardingPass'}}}}
     BoardingPassPage: {description: Page of boarding passes, content: {application/json: {schema: {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/BoardingPass'}}, meta: {$ref: '#/components/schemas/CollectionMeta'}}}}}}
+    PayloadTooLarge:
+      description: Upload exceeds the 10 MiB limit
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    ImportNotConfirmable:
+      description: Import is not ready to confirm
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    InternalError:
+      description: Confirmation failed and was rolled back
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
 security:
   - principal: []
 tags:
   - name: tenant
   - name: ship
+  - name: ship-import
   - name: voyage
   - name: staff
   - name: partner

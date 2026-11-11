@@ -19,12 +19,12 @@ func TestVoyageModuleConstraints(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Voyage Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)
 	}
-	svc := voyage.New(h.Pool, shipSvc)
+	svc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
 
 	departure := time.Now().UTC().Add(24 * time.Hour).Truncate(time.Second)
 	created, err := svc.CreateVoyage(ctx, principal, voyage.VoyageInput{

@@ -56,7 +56,7 @@ A single Go codebase structured as a modular monolith with twelve modules. Modul
 | Module | Owned tables / responsibility | HTTP surface | Audit emission |
 | --- | --- | --- | --- |
 | `tenant` | `tenants`; root tenant lifecycle | `/api/tenants` | No (deferred) |
-| `ship` | `ships`, `decks`, `areas`, `rooms`; ship master data and capacity | `/api/ships`, `/api/decks`, `/api/areas`, `/api/rooms` | No (deferred) |
+| `ship` | `ships`, `decks`, `areas`, `rooms`, `ship_structure_imports`; ship master data, capacity, and structure import lifecycle | `/api/ships`, `/api/decks`, `/api/areas`, `/api/rooms`, `/api/ships/{shipId}/structure/imports`, `/api/ships/structure/import-template` | Yes (**structure import confirmation**, `ship.structure_import.confirmed`) |
 | `voyage` | `ports`, `voyages`, `port_calls`; itinerary and voyage windows | `/api/ports`, `/api/voyages`, `/api/port-calls` | No (deferred) |
 | `staff` | `staff`, `staff_leaves`, `staff_credentials`, `shift_templates`, `coverage_requirements`, `labor_rules`, `autonomy_policies` | `/api/staff`, `/api/shift-templates`, `/api/coverage-requirements`, `/api/labor-rules`, `/api/autonomy-policies` | Yes (**create/update/soft-delete**, `staff.*`) |
 | `partner` | `partners`, `partner_contracts`, `partner_staff`, `partner_services`, `partner_slots` | `/api/partners`, `/api/partner-contracts`, `/api/partner-staff`, `/api/partner-services`, `/api/partner-slots` | No (deferred) |
@@ -68,7 +68,7 @@ A single Go codebase structured as a modular monolith with twelve modules. Modul
 | `ai` | `ai_params`; versioned metadata only, no signing workflow | none in this phase | No (deferred) |
 | `feedback` | `feedback`, `feedback_insights`; submit/read only | none in this phase | No (deferred) |
 
-Ownership boundaries: the table owner is the only module allowed to write its rows. Cross-module reads go through interface methods (for example `ship.Service.TenantID`, `voyage.Service.Lookup`, `booking.Service.BookingExists`) and are re-checked for tenant/ship scope. Audit emission covers `staff`, `booking`, `guest`, and `auth` in this baseline; `audit.Appender.AppendTx` must be called inside the same transaction as the business write so a failed audit append rolls the write back. The `sync`, `ai`, and `feedback` modules are internal in this phase and register no HTTP routes; `auth` exposes public and protected `/api/auth/*` routes. `change_log` and `ship_seq` remain trigger-owned and are never written by application code.
+Ownership boundaries: the table owner is the only module allowed to write its rows. Cross-module reads go through interface methods (for example `ship.Service.TenantID`, `voyage.Service.Lookup`, `booking.Service.BookingExists`) and are re-checked for tenant/ship scope. Audit emission covers `staff`, `booking`, `guest`, `auth`, and ship structure import confirmation in this baseline; `audit.Appender.AppendTx` must be called inside the same transaction as the business write so a failed audit append rolls the write back. The `sync`, `ai`, and `feedback` modules are internal in this phase and register no HTTP routes; `auth` exposes public and protected `/api/auth/*` routes. `change_log` and `ship_seq` remain trigger-owned and are never written by application code.
 
 ### 3.3 Backend Responsibilities
 
@@ -95,7 +95,7 @@ Ownership boundaries: the table owner is the only module allowed to write its ro
 
 Main table groups: `ships`, `decks`, `rooms`, `voyages`, `port_calls`, `staff`, `partners`, `partner_slots`, `bookings`, `guests`, `shift_templates` and shift plans, `accounts`, `refresh_tokens`, `hub_devices`, `change_log`, `ship_seq`, `job_runs`, and `audit_log`.
 
-Migration `00002_business_schema.sql` installs the 41-table business baseline (including the `capture_change`/`touch_row` triggers and exclusion constraints) as a faithful copy of `docs/schema.sql`; `db/schema.sql` is kept in sync for sqlc generation.
+Migration `00002_business_schema.sql` installs the 41-table business baseline (including the `capture_change`/`touch_row` triggers and exclusion constraints) as a faithful copy of `docs/schema.sql`; `00004_ship_structure_imports.sql` adds the cloud-only import-history table for a 42-table current baseline, and `db/schema.sql` is kept in sync for sqlc generation.
 
 Conventions: UUID v7 primary keys and common columns `id`, `ship_id`, `created_at`, `updated_at`, `version`, and `deleted_at`. Prevent overlapping slots using PostgreSQL exclusion constraints. Sensitive data (passports) is encrypted at the field level using KMS. Redis locks are only used to reduce load; the final decision is always enforced by database constraints.
 

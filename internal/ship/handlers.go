@@ -15,6 +15,7 @@ type shipCreateRequest struct {
 	ImoNumber *string `json:"imo_number" validate:"omitempty,max=32"`
 	FlagState *string `json:"flag_state" validate:"omitempty,max=64"`
 	Timezone  string  `json:"timezone" validate:"omitempty,max=64"`
+	Status    string  `json:"status" validate:"omitempty,oneof=active maintenance retired"`
 }
 
 type shipUpdateRequest struct {
@@ -72,6 +73,15 @@ func RegisterRoutes(r chi.Router, svc Service) {
 	r.Route("/ships", func(r chi.Router) {
 		r.Get("/", listShips(svc))
 		r.Post("/", createShip(svc))
+		r.Get("/structure/import-template", structureImportTemplate(svc))
+		r.Route("/{shipId}/structure/imports", func(r chi.Router) {
+			r.Post("/", uploadStructureImport(svc))
+			r.Route("/{importId}", func(r chi.Router) {
+				r.Get("/", getStructureImport(svc))
+				r.Get("/preview", previewStructureImport(svc))
+				r.Post("/confirm", confirmStructureImport(svc))
+			})
+		})
 		r.Route("/{id}", func(r chi.Router) {
 			r.Get("/", getShip(svc))
 			r.Patch("/", updateShip(svc))
@@ -133,7 +143,8 @@ func createShip(svc Service) http.HandlerFunc {
 			return
 		}
 		row, err := svc.CreateShip(r.Context(), principal, ShipInput{
-			Name: req.Name, ImoNumber: req.ImoNumber, FlagState: req.FlagState, Timezone: req.Timezone,
+			Name: req.Name, ImoNumber: req.ImoNumber, FlagState: req.FlagState,
+			Timezone: req.Timezone, Status: req.Status,
 		})
 		if err != nil {
 			httpx.WriteError(w, r, err)

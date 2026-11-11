@@ -50,9 +50,9 @@ func TestCursorPaginationHasNoDuplicatesOrSkips(t *testing.T) {
 	}, seeded)
 
 	principal := testutil.Principal(h.SeedTenant(t))
-	shipSvc := ship.New(h.Pool)
+	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
 	shipRow := h.SeedShip(t, principal.TenantID)
-	voyageSvc := voyage.New(h.Pool, shipSvc)
+	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
 	departure := time.Now().UTC().Add(24 * time.Hour)
 	voyageID := h.SeedVoyage(t, shipRow, "PAGE-1", departure)
 	bookingIDs := make(map[uuid.UUID]bool, total)

@@ -1,0 +1,594 @@
+openapi: "3.0.3"
+info:
+  title: Ship Onboarding and Structure Import API
+  version: "0.1.0"
+  description: |
+    Feature-scoped contract for `004-ship-structure-import`. Paths are relative to
+    the canonical `/api` runtime prefix (see `servers`). When this fragment is merged
+    into `openapi/openapi.yaml`, the repository-wide title/servers and the existing
+    `/v1` contract tests must be reconciled to `/api`.
+
+    Conventions:
+      * All endpoints are default-deny and require an authenticated principal with
+        tenant and ship access.
+      * Errors use the shared envelope `{ error: { code, message, request_id } }`.
+      * List endpoints use opaque cursor pagination (`limit`, `cursor`).
+      * Upload accepts `multipart/form-data` with one `file` part and an optional
+        `Idempotency-Key` header. A file that is accepted but fails validation still
+        returns 201 with an import in `failed` state; confirmation is blocked.
+      * Confirmation is all-or-nothing. A completed import returns its completed
+        outcome on repeat; a non-ready import returns 409.
+servers:
+  - url: /api
+security:
+  - bearerAuth: []
+paths:
+  /ships:
+    get:
+      tags: [ship]
+      summary: List ships
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Cursor-paginated ships
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [ship]
+      summary: Create a ship independently of its structure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShipInput'
+      responses:
+        '201':
+          description: Created ship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ship'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /ships/{shipId}:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+    get:
+      tags: [ship]
+      summary: Get ship details
+      responses:
+        '200':
+          description: Ship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ship'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [ship]
+      summary: Update ship information
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShipUpdate'
+      responses:
+        '200':
+          description: Updated ship
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ship'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [ship]
+      summary: Soft-delete a ship
+      responses:
+        '204':
+          description: Ship soft-deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ships/{shipId}/structure/imports:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+    post:
+      tags: [ship-import]
+      summary: Upload and synchronously validate a structure workbook
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: An .xlsx workbook with Decks, Areas, and Rooms sheets.
+      responses:
+        '201':
+          description: |
+            Import created. Validation ran synchronously. Status is `ready` when
+            every record is valid, or `failed` with findings; confirmation is blocked
+            for failed imports.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportPreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+  /ships/{shipId}/structure/imports/{importId}:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+      - $ref: '#/components/parameters/ImportId'
+    get:
+      tags: [ship-import]
+      summary: Get import status
+      responses:
+        '200':
+          description: Import lifecycle state, file metadata, counts, and safe error summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipStructureImport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ships/{shipId}/structure/imports/{importId}/preview:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+      - $ref: '#/components/parameters/ImportId'
+    get:
+      tags: [ship-import]
+      summary: Get the validation preview
+      responses:
+        '200':
+          description: Import summary, valid normalized rows, and row-level findings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportPreview'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /ships/{shipId}/structure/imports/{importId}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ShipId'
+      - $ref: '#/components/parameters/ImportId'
+    post:
+      tags: [ship-import]
+      summary: Confirm a ready import and persist all structure atomically
+      responses:
+        '200':
+          description: |
+            Import completed. A repeat confirmation of a completed import returns the
+            same completed outcome without creating duplicate records.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShipStructureImport'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/ImportNotConfirmable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /ships/structure/import-template:
+    get:
+      tags: [ship-import]
+      summary: Download the structure import workbook template
+      responses:
+        '200':
+          description: XLSX template with Decks, Areas, Rooms, and Reference sheets
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+              description: attachment; filename="ship-structure-import-template.xlsx"
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ShipId:
+      name: shipId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 20
+        maximum: 100
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+      description: |
+        Optional. Replaying the same key for the same ship and the same file SHA-256
+        returns the existing import preview. The same key with a different file
+        returns 409 idempotency_conflict.
+  responses:
+    BadRequest:
+      description: Malformed multipart request or missing file part
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    NotFound:
+      description: Ship or import not found, deleted, or outside the caller's tenant/ship scope
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    Conflict:
+      description: IMO/import idempotency conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    PayloadTooLarge:
+      description: Upload exceeds the 10 MiB limit
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    ImportNotConfirmable:
+      description: Import is validating, failed, processing, or otherwise not ready
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    InternalError:
+      description: Confirmation failed and was rolled back; the import remains retryable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              example: validation_failed
+            message:
+              type: string
+            request_id:
+              type: string
+    ShipInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        imo_number:
+          type: string
+          maxLength: 32
+          nullable: true
+        flag_state:
+          type: string
+          maxLength: 64
+          nullable: true
+        timezone:
+          type: string
+          maxLength: 64
+          default: UTC
+        status:
+          type: string
+          enum: [active, maintenance, retired]
+          default: active
+    ShipUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        imo_number:
+          type: string
+          maxLength: 32
+          nullable: true
+        flag_state:
+          type: string
+          maxLength: 64
+          nullable: true
+        timezone:
+          type: string
+          maxLength: 64
+        status:
+          type: string
+          enum: [active, maintenance, retired]
+    Ship:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        imo_number:
+          type: string
+          nullable: true
+        flag_state:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+        status:
+          type: string
+          enum: [active, maintenance, retired]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        version:
+          type: integer
+          format: int64
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+    ShipPage:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Ship'
+        meta:
+          type: object
+          properties:
+            next_cursor:
+              type: string
+              nullable: true
+    ImportEntityCounts:
+      type: object
+      required: [total, valid, invalid]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        valid:
+          type: integer
+          minimum: 0
+        invalid:
+          type: integer
+          minimum: 0
+    ImportCounts:
+      type: object
+      required: [decks, areas, rooms]
+      properties:
+        decks:
+          $ref: '#/components/schemas/ImportEntityCounts'
+        areas:
+          $ref: '#/components/schemas/ImportEntityCounts'
+        rooms:
+          $ref: '#/components/schemas/ImportEntityCounts'
+    ValidationFinding:
+      type: object
+      required: [sheet, row, column, code, message]
+      properties:
+        sheet:
+          type: string
+          description: Decks, Areas, Rooms, or empty for file-level findings
+        row:
+          type: integer
+          minimum: 0
+          description: Excel 1-based row (1 = header); 0 for file/sheet-level findings
+        column:
+          type: string
+          description: Canonical column name; empty for sheet/file-level findings
+        code:
+          type: string
+          description: Stable finding code (see contracts/template-workbook.md)
+        message:
+          type: string
+          description: Safe, actionable message
+    ImportedDeck:
+      type: object
+      required: [level, name]
+      properties:
+        level:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+    ImportedArea:
+      type: object
+      required: [deck_level, name, area_type]
+      properties:
+        deck_level:
+          type: integer
+          minimum: 0
+        name:
+          type: string
+        area_type:
+          type: string
+          enum: [restaurant, lobby, open_deck, theatre, shop, corridor, stairwell, spa, pool, other]
+        capacity:
+          type: integer
+          minimum: 0
+          nullable: true
+        layout:
+          nullable: true
+    ImportedRoom:
+      type: object
+      required: [deck_level, number, room_type, capacity, is_bookable]
+      properties:
+        deck_level:
+          type: integer
+          minimum: 0
+        number:
+          type: string
+        room_type:
+          type: string
+          enum: [inside, oceanview, balcony, suite, crew, other]
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 32767
+        is_bookable:
+          type: boolean
+          default: true
+        layout:
+          nullable: true
+    ImportRecords:
+      type: object
+      required: [decks, areas, rooms]
+      properties:
+        decks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportedDeck'
+        areas:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportedArea'
+        rooms:
+          type: array
+          items:
+            $ref: '#/components/schemas/ImportedRoom'
+    ImportFile:
+      type: object
+      required: [name, size_bytes, sha256]
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        sha256:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+    ShipStructureImport:
+      type: object
+      required: [id, ship_id, status, file, counts, can_confirm, timestamps]
+      properties:
+        id:
+          type: string
+          format: uuid
+        ship_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [uploaded, validating, ready, failed, processing, completed]
+        file:
+          $ref: '#/components/schemas/ImportFile'
+        counts:
+          $ref: '#/components/schemas/ImportCounts'
+        can_confirm:
+          type: boolean
+        error_summary:
+          type: string
+          nullable: true
+        timestamps:
+          type: object
+          required: [created_at, updated_at]
+          properties:
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+            completed_at:
+              type: string
+              format: date-time
+              nullable: true
+    ImportPreview:
+      type: object
+      required: [import, records, errors]
+      properties:
+        import:
+          $ref: '#/components/schemas/ShipStructureImport'
+        records:
+          $ref: '#/components/schemas/ImportRecords'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationFinding'

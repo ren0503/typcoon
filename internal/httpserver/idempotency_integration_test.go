@@ -62,11 +62,11 @@ func TestIdempotencyHeadersAreHonoured(t *testing.T) {
 		"embark_seq":    1,
 		"disembark_seq": 5,
 	}
-	first := do("/v1/bookings", "http-booking-1", bookingBody)
+	first := do("/api/bookings", "http-booking-1", bookingBody)
 	if first.Status != http.StatusCreated {
 		t.Fatalf("first booking status = %d body=%s", first.Status, first.Body)
 	}
-	replay := do("/v1/bookings", "http-booking-1", bookingBody)
+	replay := do("/api/bookings", "http-booking-1", bookingBody)
 	if replay.Status != http.StatusCreated {
 		t.Fatalf("replay booking status = %d body=%s", replay.Status, replay.Body)
 	}
@@ -83,7 +83,7 @@ func TestIdempotencyHeadersAreHonoured(t *testing.T) {
 		"embark_seq":    1,
 		"disembark_seq": 6,
 	}
-	conflict := do("/v1/bookings", "http-booking-1", changedBody)
+	conflict := do("/api/bookings", "http-booking-1", changedBody)
 	if conflict.Status != http.StatusConflict {
 		t.Fatalf("changed payload status = %d body=%s", conflict.Status, conflict.Body)
 	}
@@ -96,11 +96,11 @@ func TestIdempotencyHeadersAreHonoured(t *testing.T) {
 		"partner_service_id": partnerServiceID.String(),
 		"quantity":           1,
 	}
-	serviceFirst := do("/v1/service-bookings", "http-service-1", serviceBody)
+	serviceFirst := do("/api/service-bookings", "http-service-1", serviceBody)
 	if serviceFirst.Status != http.StatusCreated {
 		t.Fatalf("first service booking status = %d body=%s", serviceFirst.Status, serviceFirst.Body)
 	}
-	serviceReplay := do("/v1/service-bookings", "http-service-1", serviceBody)
+	serviceReplay := do("/api/service-bookings", "http-service-1", serviceBody)
 	if serviceReplay.Status != http.StatusCreated {
 		t.Fatalf("service replay status = %d body=%s", serviceReplay.Status, serviceReplay.Body)
 	}
@@ -108,7 +108,7 @@ func TestIdempotencyHeadersAreHonoured(t *testing.T) {
 		t.Fatal("idempotent service booking ids differ")
 	}
 	serviceBody["quantity"] = 2
-	serviceConflict := do("/v1/service-bookings", "http-service-1", serviceBody)
+	serviceConflict := do("/api/service-bookings", "http-service-1", serviceBody)
 	if serviceConflict.Status != http.StatusConflict {
 		t.Fatalf("service changed payload status = %d body=%s", serviceConflict.Status, serviceConflict.Body)
 	}

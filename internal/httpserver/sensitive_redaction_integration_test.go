@@ -65,7 +65,7 @@ func TestSensitiveValuesNeverAppearInResponsesOrLogs(t *testing.T) {
 
 	ciphertext := append([]byte("TYC1"), bytes.Repeat([]byte{0x42}, 28)...)
 	documentEnc := base64.StdEncoding.EncodeToString(ciphertext)
-	create := do(http.MethodPost, "/v1/bookings/"+bookingID.String()+"/guests", map[string]any{
+	create := do(http.MethodPost, "/api/bookings/"+bookingID.String()+"/guests", map[string]any{
 		"full_name":             "Redacted Guest",
 		"document_enc":          documentEnc,
 		"emergency_contact_enc": documentEnc,
@@ -74,17 +74,17 @@ func TestSensitiveValuesNeverAppearInResponsesOrLogs(t *testing.T) {
 		t.Fatalf("create guest status = %d body=%s", create.Status, create.Body)
 	}
 	guestID, _ := create.decode(t)["id"].(string)
-	list := do(http.MethodGet, "/v1/bookings/"+bookingID.String()+"/guests", nil)
+	list := do(http.MethodGet, "/api/bookings/"+bookingID.String()+"/guests", nil)
 	if list.Status != http.StatusOK {
 		t.Fatalf("list guests status = %d", list.Status)
 	}
 
 	pin := "918273"
-	credential := do(http.MethodPut, "/v1/staff/"+staffID.String()+"/credential", map[string]any{"pin": pin})
+	credential := do(http.MethodPut, "/api/staff/"+staffID.String()+"/credential", map[string]any{"pin": pin})
 	if credential.Status != http.StatusOK {
 		t.Fatalf("set credential status = %d body=%s", credential.Status, credential.Body)
 	}
-	metadata := do(http.MethodGet, "/v1/staff/"+staffID.String()+"/credential", nil)
+	metadata := do(http.MethodGet, "/api/staff/"+staffID.String()+"/credential", nil)
 	if metadata.Status != http.StatusOK {
 		t.Fatalf("get credential status = %d body=%s", metadata.Status, metadata.Body)
 	}
@@ -149,7 +149,7 @@ func TestAuthTokensNeverAppearInResponsesOrLogs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal exchange: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/v1/auth/firebase/exchange", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/firebase/exchange", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -178,7 +178,7 @@ func TestAuthTokensNeverAppearInResponsesOrLogs(t *testing.T) {
 		}
 	}
 
-	jwksReq := httptest.NewRequest(http.MethodGet, "/v1/auth/jwks", nil)
+	jwksReq := httptest.NewRequest(http.MethodGet, "/api/auth/jwks", nil)
 	jwksRec := httptest.NewRecorder()
 	router.ServeHTTP(jwksRec, jwksReq)
 	if jwksRec.Code != http.StatusOK {

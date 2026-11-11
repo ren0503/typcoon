@@ -54,7 +54,7 @@ func TestDeclaredOperationsAreMounted(t *testing.T) {
 
 	for path, item := range doc.Paths.Map() {
 		for method := range item.Operations() {
-			key := strings.ToUpper(method) + " " + normalizeRoute("/v1"+path)
+			key := strings.ToUpper(method) + " " + normalizeRoute("/api"+path)
 			if !mounted[key] {
 				t.Errorf("openapi declares %s but the router does not mount it", key)
 			}
@@ -109,7 +109,7 @@ func TestExercisedRequestsAndResponsesMatchSpec(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Dev-Principal", token)
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 		route, pathParams, err := router2.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("%s not found in spec: %v", path, err)
@@ -133,7 +133,7 @@ func TestExercisedRequestsAndResponsesMatchSpec(t *testing.T) {
 		}
 	}
 
-	exercise("/v1/ships")
-	exercise("/v1/ships/" + shipID.String())
-	exercise("/v1/tenants")
+	exercise("/api/ships")
+	exercise("/api/ships/" + shipID.String())
+	exercise("/api/tenants")
 }

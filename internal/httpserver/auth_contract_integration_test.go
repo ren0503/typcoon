@@ -147,12 +147,12 @@ func TestFirebaseExchangeContract(t *testing.T) {
 
 	exchange := func(body, contentType string, validateRequest bool) (*httptest.ResponseRecorder, *openapi3filter.RequestValidationInput) {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/v1/auth/firebase/exchange", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/firebase/exchange", strings.NewReader(body))
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 		route, pathParams, err := router2.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("exchange route not found in spec: %v", err)
@@ -244,7 +244,7 @@ func TestFirebaseExchangeErrorMapping(t *testing.T) {
 					auth.RegisterPublicRoutes(r, service)
 				},
 			})
-			req := httptest.NewRequest(http.MethodPost, "/v1/auth/firebase/exchange",
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/firebase/exchange",
 				strings.NewReader(`{"firebase_id_token":"verified-firebase-token"}`))
 			req.Header.Set("Content-Type", "application/json")
 			rec := httptest.NewRecorder()
@@ -312,10 +312,10 @@ func TestLogoutContract(t *testing.T) {
 	})
 	logoutRequest := func(body string) (*httptest.ResponseRecorder, *openapi3filter.RequestValidationInput) {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/v1/auth/logout", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 		route, pathParams, err := specRouter.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("logout route not found in spec: %v", err)
@@ -364,9 +364,9 @@ func TestLogoutContract(t *testing.T) {
 			auth.RegisterProtectedRoutes(r, service)
 		},
 	})
-	req := httptest.NewRequest(http.MethodPost, "/v1/auth/logout-all", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout-all", nil)
 	specReq := req.Clone(req.Context())
-	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 	route, pathParams, err := specRouter.FindRoute(specReq)
 	if err != nil {
 		t.Fatalf("logout-all route not found in spec: %v", err)
@@ -422,7 +422,7 @@ func TestIdentityLinkContract(t *testing.T) {
 	requestInputFor := func(req *http.Request) *openapi3filter.RequestValidationInput {
 		t.Helper()
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 		route, pathParams, err := specRouter.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("route %s not found in spec: %v", specReq.URL.Path, err)
@@ -431,7 +431,7 @@ func TestIdentityLinkContract(t *testing.T) {
 	}
 	linkRequest := func(body string) (*httptest.ResponseRecorder, *openapi3filter.RequestValidationInput) {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/v1/auth/identities/link", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/identities/link", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, req)
@@ -479,7 +479,7 @@ func TestIdentityLinkContract(t *testing.T) {
 		router.ServeHTTP(rec, req)
 		return rec, requestInputFor(req)
 	}
-	rec, requestInput = unlinkRequest("/v1/auth/identities/" + identityID.String())
+	rec, requestInput = unlinkRequest("/api/auth/identities/" + identityID.String())
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("unlink status = %d, body = %s", rec.Code, rec.Body.String())
 	}
@@ -492,27 +492,27 @@ func TestIdentityLinkContract(t *testing.T) {
 	validateResponse(rec, requestInput)
 
 	service.unlinkErr = auth.ErrIdentityNotFound
-	rec, requestInput = unlinkRequest("/v1/auth/identities/" + identityID.String())
+	rec, requestInput = unlinkRequest("/api/auth/identities/" + identityID.String())
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown identity unlink status = %d, want 404", rec.Code)
 	}
 	validateResponse(rec, requestInput)
 
 	service.unlinkErr = auth.ErrLastIdentity
-	rec, requestInput = unlinkRequest("/v1/auth/identities/" + identityID.String())
+	rec, requestInput = unlinkRequest("/api/auth/identities/" + identityID.String())
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("last identity unlink status = %d, want 409", rec.Code)
 	}
 	validateResponse(rec, requestInput)
 
-	rec, requestInput = unlinkRequest("/v1/auth/identities/not-a-uuid")
+	rec, requestInput = unlinkRequest("/api/auth/identities/not-a-uuid")
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("malformed identity unlink status = %d, want 400", rec.Code)
 	}
 	validateResponse(rec, requestInput)
 
 	service.unlinkErr = &auth.RateLimitedError{RetryAfter: time.Second}
-	rec, requestInput = unlinkRequest("/v1/auth/identities/" + identityID.String())
+	rec, requestInput = unlinkRequest("/api/auth/identities/" + identityID.String())
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
 		t.Fatalf("rate-limited unlink status = %d retry = %q", rec.Code, rec.Header().Get("Retry-After"))
 	}
@@ -543,12 +543,12 @@ func TestRefreshContract(t *testing.T) {
 	})
 	validateRefresh := func(body, contentType string, validateRequest bool) (*httptest.ResponseRecorder, *openapi3filter.RequestValidationInput) {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh", strings.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", strings.NewReader(body))
 		if contentType != "" {
 			req.Header.Set("Content-Type", contentType)
 		}
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 		route, pathParams, err := specRouter.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("refresh route not found in spec: %v", err)
@@ -626,11 +626,11 @@ func TestRefreshContract(t *testing.T) {
 					auth.RegisterPublicRoutes(r, service)
 				},
 			})
-			req := httptest.NewRequest(http.MethodPost, "/v1/auth/refresh",
+			req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh",
 				strings.NewReader(`{"refresh_token":"current-refresh-token"}`))
 			req.Header.Set("Content-Type", "application/json")
 			specReq := req.Clone(req.Context())
-			specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+			specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 			route, pathParams, err := specRouter.FindRoute(specReq)
 			if err != nil {
 				t.Fatalf("refresh route not found in spec: %v", err)
@@ -694,9 +694,9 @@ func TestJWKSContract(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/auth/jwks", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/jwks", nil)
 	specReq := req.Clone(req.Context())
-	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/v1")
+	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
 	route, pathParams, err := specRouter.FindRoute(specReq)
 	if err != nil {
 		t.Fatalf("jwks route not found in spec: %v", err)

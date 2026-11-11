@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ren0503/tycoon/internal/database"
@@ -11,11 +12,20 @@ import (
 )
 
 type repo struct {
-	q *sqlc.Queries
+	pool *pgxpool.Pool
+	q    *sqlc.Queries
 }
 
 func newRepo(pool *pgxpool.Pool) *repo {
-	return &repo{q: sqlc.New(pool)}
+	return &repo{pool: pool, q: sqlc.New(pool)}
+}
+
+func (r *repo) begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, database.MapPgError(err)
+	}
+	return tx, nil
 }
 
 func (r *repo) createShip(ctx context.Context, p sqlc.CreateShipParams) (sqlc.Ship, error) {

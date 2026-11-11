@@ -23,6 +23,7 @@ var constraintFields = map[string]string{
 	"uq_bookings_idem":                                 "idempotency_key",
 	"uq_service_bookings_idem":                         "idempotency_key",
 	"uq_autonomy_scope":                                "change_type",
+	"uq_ship_structure_imports_idem":                   "idempotency_key",
 	"uq_hub_primary":                                   "role",
 	"admin_ship_access_pkey":                           "ship_id",
 	"staff_credentials_staff_id_key":                   "staff_id",

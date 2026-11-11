@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ren0503/tycoon/internal/apperrors"
+	"github.com/ren0503/tycoon/internal/audit"
 	"github.com/ren0503/tycoon/internal/auth"
 	"github.com/ren0503/tycoon/internal/database"
 	"github.com/ren0503/tycoon/internal/database/sqlc"
@@ -33,12 +34,23 @@ var (
 type service struct {
 	repo   *repo
 	logger *slog.Logger
+	audit  audit.Appender
 }
 
 // New builds the ship service.
-func New(pool *pgxpool.Pool, logger *slog.Logger) Service {
-	return &service{repo: newRepo(pool), logger: logger.With("component", "ship_service")}
+func New(pool *pgxpool.Pool, logger *slog.Logger, appender audit.Appender) Service {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if appender == nil {
+		appender = noopAudit{}
+	}
+	return &service{repo: newRepo(pool), logger: logger.With("component", "ship_service"), audit: appender}
 }
+
+type noopAudit struct{}
+
+func (noopAudit) AppendTx(context.Context, audit.Execer, audit.Entry) error { return nil }
 
 func (s *service) CreateShip(ctx context.Context, p auth.Principal, input ShipInput) (sqlc.Ship, error) {
 	name := strings.TrimSpace(input.Name)
@@ -64,13 +76,22 @@ func (s *service) CreateShip(ctx context.Context, p auth.Principal, input ShipIn
 		s.logger.ErrorContext(ctx, "failed to generate UUID for new ship", "principal", p, "input", input, "error", err)
 		return sqlc.Ship{}, apperrors.Internal(err)
 	}
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "active"
+	}
+	if !shipStatuses[status] {
+		s.logger.ErrorContext(ctx, "validation failed: unrecognized ship status", "principal", p, "input", input)
+		return sqlc.Ship{}, validation("Ship status is not recognised.")
+	}
 	ship, err := s.repo.createShip(ctx, sqlc.CreateShipParams{
 		ID: id, TenantID: tenantID, Name: name,
 		ImoNumber: trimPtr(input.ImoNumber), FlagState: trimPtr(input.FlagState), Timezone: timezone,
+		Status: status,
 	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to create ship", "principal", p, "input", input, "error", err)
-		return sqlc.Ship{}, apperrors.Internal(err)
+		return sqlc.Ship{}, err
 	}
 	return ship, nil
 }
@@ -143,7 +164,7 @@ func (s *service) UpdateShip(ctx context.Context, p auth.Principal, id uuid.UUID
 	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to update ship", "principal", p, "input", input, "error", err)
-		return sqlc.Ship{}, apperrors.Internal(err)
+		return sqlc.Ship{}, err
 	}
 	return ship, nil
 }
@@ -174,7 +195,7 @@ func (s *service) CreateDeck(ctx context.Context, p auth.Principal, shipID uuid.
 	deck, err := s.repo.createDeck(ctx, sqlc.CreateDeckParams{ID: id, ShipID: shipID, Level: input.Level, Name: name})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to create deck", "principal", p, "input", input, "error", err)
-		return sqlc.Deck{}, apperrors.Internal(err)
+		return sqlc.Deck{}, err
 	}
 	return deck, nil
 }
@@ -234,7 +255,7 @@ func (s *service) UpdateDeck(ctx context.Context, p auth.Principal, id uuid.UUID
 	deck, err := s.repo.updateDeck(ctx, sqlc.UpdateDeckParams{ID: id, Level: current.Level, Name: current.Name})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to update deck", "principal", p, "input", input, "error", err)
-		return sqlc.Deck{}, apperrors.Internal(err)
+		return sqlc.Deck{}, err
 	}
 	return deck, nil
 }
@@ -276,7 +297,7 @@ func (s *service) CreateArea(ctx context.Context, p auth.Principal, shipID uuid.
 	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to create area", "principal", p, "input", input, "error", err)
-		return sqlc.Area{}, apperrors.Internal(err)
+		return sqlc.Area{}, err
 	}
 	return area, nil
 }
@@ -342,7 +363,7 @@ func (s *service) UpdateArea(ctx context.Context, p auth.Principal, id uuid.UUID
 	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to update area", "principal", p, "input", input, "error", err)
-		return sqlc.Area{}, apperrors.Internal(err)
+		return sqlc.Area{}, err
 	}
 	return area, nil
 }
@@ -380,7 +401,7 @@ func (s *service) CreateRoom(ctx context.Context, p auth.Principal, shipID uuid.
 	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to create room", "principal", p, "input", input, "error", err)
-		return sqlc.Room{}, apperrors.Internal(err)
+		return sqlc.Room{}, err
 	}
 	return room, nil
 }
@@ -463,7 +484,7 @@ func (s *service) UpdateRoom(ctx context.Context, p auth.Principal, id uuid.UUID
 	})
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to update room", "principal", p, "input", input, "error", err)
-		return sqlc.Room{}, apperrors.Internal(err)
+		return sqlc.Room{}, err
 	}
 	return room, nil
 }

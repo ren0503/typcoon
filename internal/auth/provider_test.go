@@ -190,3 +190,21 @@ func TestAccessTokenProviderFleetRequiresActiveGrant(t *testing.T) {
 		}
 	}
 }
+
+func TestDevHeaderProviderAcceptsConfiguredDescriptor(t *testing.T) {
+	tenantID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	descriptor := "admin:dev-1:" + tenantID.String()
+	provider, err := NewDevHeaderProvider([]string{descriptor})
+	if err != nil {
+		t.Fatalf("provider: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Dev-Principal", descriptor)
+	principal, err := provider.Authenticate(req)
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if principal.ActorType != ActorAdmin || principal.ActorID != "dev-1" || principal.TenantID != tenantID || !principal.Dev {
+		t.Fatalf("principal = %+v", principal)
+	}
+}

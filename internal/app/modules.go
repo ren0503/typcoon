@@ -37,7 +37,7 @@ type Modules struct {
 
 func BuildModules(pool *pgxpool.Pool, logger *slog.Logger, authService auth.Service) Modules {
 	auditStore := audit.NewStore(pool, logger)
-	shipSvc := ship.New(pool, logger)
+	shipSvc := ship.New(pool, logger, auditStore)
 	voyageSvc := voyage.New(pool, logger, shipSvc)
 	staffSvc := staff.New(pool, logger, shipSvc, auditStore)
 	partnerSvc := partner.New(pool, shipSvc)
@@ -63,7 +63,7 @@ func BuildModules(pool *pgxpool.Pool, logger *slog.Logger, authService auth.Serv
 	}
 }
 
-// RegisterRoutes mounts every module that exposes an HTTP surface under /v1.
+// RegisterRoutes mounts every module that exposes an HTTP surface under /api.
 func (m Modules) RegisterRoutes(r chi.Router) {
 	tenant.RegisterRoutes(r, m.TenantSvc)
 	ship.RegisterRoutes(r, m.ShipSvc)

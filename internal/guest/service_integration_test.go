@@ -34,8 +34,8 @@ func TestGuestCiphertextSecrecyAndAudit(t *testing.T) {
 	voyageID := h.SeedVoyage(t, shipID, "GUEST-1", departure)
 	bookingID := h.SeedBooking(t, shipID, voyageID)
 
-	bookingSvc := booking.New(h.Pool, ship.New(h.Pool), nil, nil, auth.NewAccountService(h.Pool), nil)
-	auditStore := audit.NewStore(h.Pool)
+	bookingSvc := booking.New(h.Pool, ship.New(h.Pool, testutil.Logger(t), nil), nil, nil, auth.NewAccountService(h.Pool), nil)
+	auditStore := audit.NewStore(h.Pool, testutil.Logger(t))
 	cipher, err := guest.NewDevDocumentCipher()
 	if err != nil {
 		t.Fatalf("build cipher: %v", err)

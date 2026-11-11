@@ -21,6 +21,7 @@ type ShipInput struct {
 	ImoNumber *string
 	FlagState *string
 	Timezone  string
+	Status    string
 }
 
 // ShipUpdate is the ship update payload.
@@ -112,4 +113,10 @@ type Service interface {
 	TenantID(ctx context.Context, shipID uuid.UUID) (uuid.UUID, error)
 	// RoomShipID returns the ship a non-deleted room belongs to.
 	RoomShipID(ctx context.Context, roomID uuid.UUID) (uuid.UUID, error)
+
+	UploadStructureImport(ctx context.Context, principal auth.Principal, shipID uuid.UUID, fileName string, data []byte, idempotencyKey string) (ImportPreview, error)
+	GetStructureImport(ctx context.Context, principal auth.Principal, shipID, importID uuid.UUID) (ShipStructureImportResponse, error)
+	PreviewStructureImport(ctx context.Context, principal auth.Principal, shipID, importID uuid.UUID) (ImportPreview, error)
+	ConfirmStructureImport(ctx context.Context, principal auth.Principal, shipID, importID uuid.UUID) (ShipStructureImportResponse, error)
+	StructureImportTemplate(ctx context.Context) ([]byte, error)
 }
