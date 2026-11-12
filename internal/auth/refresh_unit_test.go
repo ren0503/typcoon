@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/database/sqlc"
+	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
 )
 
 func newRefreshFixture(t *testing.T, row *sqlc.RefreshToken, account sqlc.Account) (authFixture, *fakeServiceStore) {

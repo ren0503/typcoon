@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/ren0503/tycoon/internal/config"
+	"github.com/ren0503/tycoon/internal/platform/config"
 )
 
 // Database is the database lifecycle required by the application.

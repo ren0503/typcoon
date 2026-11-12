@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ren0503/tycoon/internal/ai"
+	"github.com/ren0503/tycoon/internal/application/auth"
 	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/auth"
 	"github.com/ren0503/tycoon/internal/booking"
 	"github.com/ren0503/tycoon/internal/feedback"
 	"github.com/ren0503/tycoon/internal/guest"

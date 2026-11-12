@@ -8,13 +8,13 @@ import (
 	"syscall"
 
 	"github.com/ren0503/tycoon/internal/app"
-	"github.com/ren0503/tycoon/internal/auth"
-	"github.com/ren0503/tycoon/internal/awsconfig"
-	"github.com/ren0503/tycoon/internal/config"
-	"github.com/ren0503/tycoon/internal/database"
-	"github.com/ren0503/tycoon/internal/health"
-	"github.com/ren0503/tycoon/internal/httpserver"
-	"github.com/ren0503/tycoon/internal/logging"
+	"github.com/ren0503/tycoon/internal/application/auth"
+	"github.com/ren0503/tycoon/internal/infrastructure/aws"
+	"github.com/ren0503/tycoon/internal/infrastructure/health"
+	"github.com/ren0503/tycoon/internal/infrastructure/observability/logging"
+	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres"
+	"github.com/ren0503/tycoon/internal/platform/config"
+	"github.com/ren0503/tycoon/internal/transport/http"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	db, err := database.New(ctx, cfg.Database)
+	db, err := postgres.New(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}

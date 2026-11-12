@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/ren0503/tycoon/internal/apperrors"
+	"github.com/ren0503/tycoon/internal/platform/errors"
 )
 
 func TestMapAuthWriteErrorClassifiesConstraints(t *testing.T) {

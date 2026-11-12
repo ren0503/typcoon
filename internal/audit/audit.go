@@ -1,3 +1,5 @@
+// Package audit is a temporary compatibility facade. It is removed once all
+// call sites use application/audit and module transaction ports.
 package audit
 
 import (
@@ -6,26 +8,18 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/ren0503/tycoon/internal/apperrors"
+	appaudit "github.com/ren0503/tycoon/internal/application/audit"
+	"github.com/ren0503/tycoon/internal/platform/errors"
 )
 
-// Entry is one append-only audit record.
-type Entry struct {
-	OccurredAt time.Time
-	Source     string
-	ActorType  string
-	ActorID    *string
-	Action     string
-	Entity     *string
-	EntityID   *string
-	ShipID     *uuid.UUID
-	VoyageID   *uuid.UUID
-	Details    json.RawMessage
-}
+type Entry = appaudit.Entry
+
+type Filter = appaudit.Filter
+
+type Record = appaudit.Record
 
 // Execer is the subset of a transaction the appender needs.
 type Execer interface {
@@ -35,28 +29,6 @@ type Execer interface {
 // Appender appends audit entries inside the caller's transaction.
 type Appender interface {
 	AppendTx(ctx context.Context, tx Execer, entry Entry) error
-}
-
-// Filter selects audit records for querying.
-type Filter struct {
-	ShipID   *uuid.UUID
-	Entity   string
-	EntityID string
-}
-
-// Record is a stored audit row.
-type Record struct {
-	ID         int64           `json:"id"`
-	OccurredAt time.Time       `json:"occurred_at"`
-	Source     string          `json:"source"`
-	ActorType  string          `json:"actor_type"`
-	ActorID    *string         `json:"actor_id,omitempty"`
-	Action     string          `json:"action"`
-	Entity     *string         `json:"entity,omitempty"`
-	EntityID   *string         `json:"entity_id,omitempty"`
-	ShipID     *uuid.UUID      `json:"ship_id,omitempty"`
-	VoyageID   *uuid.UUID      `json:"voyage_id,omitempty"`
-	Details    json.RawMessage `json:"details,omitempty"`
 }
 
 // Store persists audit records in the audit_log table.
@@ -72,7 +44,7 @@ func NewStore(pool *pgxpool.Pool, logger *slog.Logger) *Store {
 
 // AppendTx validates and inserts an audit entry using the caller's transaction.
 func (s *Store) AppendTx(ctx context.Context, tx Execer, entry Entry) error {
-	if err := entry.validate(); err != nil {
+	if err := appaudit.Validate(entry); err != nil {
 		s.logger.ErrorContext(ctx, "error validating audit entry", "error", err, "entry", entry)
 		return err
 	}
@@ -135,21 +107,4 @@ func (s *Store) List(ctx context.Context, filter Filter) ([]Record, error) {
 		return nil, apperrors.Internal(err)
 	}
 	return records, nil
-}
-
-func (e Entry) validate() error {
-	switch e.Source {
-	case "cloud", "hub":
-	default:
-		return apperrors.Validation(apperrors.CodeValidationFailed, "Audit source must be cloud or hub.")
-	}
-	switch e.ActorType {
-	case "admin", "account", "staff", "hub", "system", "ai":
-	default:
-		return apperrors.Validation(apperrors.CodeValidationFailed, "Audit actor type is invalid.")
-	}
-	if e.Action == "" {
-		return apperrors.Validation(apperrors.CodeValidationFailed, "Audit action is required.")
-	}
-	return nil
 }

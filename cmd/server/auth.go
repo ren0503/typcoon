@@ -14,8 +14,8 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/auth"
-	"github.com/ren0503/tycoon/internal/config"
+	"github.com/ren0503/tycoon/internal/application/auth"
+	"github.com/ren0503/tycoon/internal/platform/config"
 )
 
 func buildAuthService(

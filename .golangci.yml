@@ -15,8 +15,8 @@ linters:
             - "$all"
             - "!**/cmd/**"
             - "!**/internal/app/**"
-            - "!**/internal/httpserver/**"
-            - "!**/internal/testutil/**"
+            - "!**/internal/transport/http/**"
+            - "!**/internal/platform/testutil/**"
           deny:
             - pkg: "github.com/ren0503/tycoon/internal/app$"
               desc: business modules must not import the composition root

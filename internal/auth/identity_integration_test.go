@@ -10,8 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/auth"
-	"github.com/ren0503/tycoon/internal/testutil"
+	"github.com/ren0503/tycoon/internal/application/auth"
+	"github.com/ren0503/tycoon/internal/platform/testutil"
 )
 
 func countIdentities(t *testing.T, h *testutil.Harness) int {

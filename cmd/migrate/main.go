@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ren0503/tycoon/internal/config"
-	"github.com/ren0503/tycoon/internal/database"
-	"github.com/ren0503/tycoon/internal/logging"
+	"github.com/ren0503/tycoon/internal/infrastructure/observability/logging"
+	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres"
+	"github.com/ren0503/tycoon/internal/platform/config"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := database.RunMigrations(ctx, database.DSN(cfg.Database), command); err != nil {
+	if err := postgres.RunMigrations(ctx, postgres.DSN(cfg.Database), command); err != nil {
 		return err
 	}
 

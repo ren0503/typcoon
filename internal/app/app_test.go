@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ren0503/tycoon/internal/config"
+	"github.com/ren0503/tycoon/internal/platform/config"
 )
 
 type fakeDB struct {

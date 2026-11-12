@@ -76,6 +76,6 @@ terraform-validate:
 
 # Local/CI parity: `make test` must stay infrastructure-free. `make test-integration`
 # starts disposable PostgreSQL containers per test and is the only target that needs Docker.
-# The OpenAPI contract suite lives under internal/httpserver and validates the spec in both modes
+# The OpenAPI contract suite lives under internal/transport/http and validates the spec in both modes
 # (spec lint in `make test`, mounted-operation and request/response round-trip checks in
 # `make test-integration`).
