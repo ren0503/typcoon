@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpserver
+package app
 
 import (
 	"bytes"
@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ren0503/tycoon/internal/app"
-	"github.com/ren0503/tycoon/internal/application/auth"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
+	httpserver "github.com/ren0503/tycoon/internal/transport/http"
+	"github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
 
 func TestIdempotencyHeadersAreHonoured(t *testing.T) {
@@ -28,12 +28,12 @@ func TestIdempotencyHeadersAreHonoured(t *testing.T) {
 	partnerServiceID := h.SeedPartnerService(t, shipID, partnerID)
 
 	token := "admin:idem:" + tenantID.String()
-	provider, err := auth.NewDevHeaderProvider([]string{token})
+	provider, err := middleware.NewDevHeaderProvider([]string{token})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
-	router := NewRouter(RouterConfig{
+	modules := BuildModules(integrationModuleDeps(h, slog.New(slog.DiscardHandler)))
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        contractPinger{},
 		Provider:  provider,

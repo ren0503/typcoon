@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
 )
 
 func TestExchangeFleetRequiresExistingGrantAndNeverProvisions(t *testing.T) {
-	account := sqlc.Account{ID: uuid.New(), Status: "active"}
-	identity := &sqlc.AccountIdentity{
+	account := Account{ID: uuid.New(), Status: "active"}
+	identity := &AccountIdentity{
 		ID: uuid.New(), AccountID: account.ID, Provider: firebaseProvider, ProviderSub: "fleet-uid",
 	}
 	store := &fakeServiceStore{
@@ -78,8 +76,8 @@ func TestExchangeFleetRequiresExistingGrantAndNeverProvisions(t *testing.T) {
 
 func TestRefreshFleetRequiresActiveGrant(t *testing.T) {
 	const rawToken = "fleet-refresh-token"
-	account := sqlc.Account{ID: uuid.New(), Status: "active"}
-	row := &sqlc.RefreshToken{
+	account := Account{ID: uuid.New(), Status: "active"}
+	row := &RefreshToken{
 		ID:          uuid.New(),
 		SubjectType: "account",
 		SubjectID:   account.ID,

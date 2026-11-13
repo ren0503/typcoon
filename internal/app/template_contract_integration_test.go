@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpserver
+package app
 
 import (
 	"bytes"
@@ -16,13 +16,13 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/getkin/kin-openapi/routers"
 
-	"github.com/ren0503/tycoon/internal/app"
-	"github.com/ren0503/tycoon/internal/application/auth"
+	httpserver "github.com/ren0503/tycoon/internal/transport/http"
+	"github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
 
 func TestStructureImportTemplateMatchesSpec(t *testing.T) {
 	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile("../../../openapi/openapi.yaml")
+	doc, err := loader.LoadFromFile("../../openapi/openapi.yaml")
 	if err != nil {
 		t.Fatalf("load openapi: %v", err)
 	}
@@ -31,12 +31,12 @@ func TestStructureImportTemplateMatchesSpec(t *testing.T) {
 	}
 
 	token := "admin:template:00000000-0000-0000-0000-000000000001"
-	provider, err := auth.NewDevHeaderProvider([]string{token})
+	provider, err := middleware.NewDevHeaderProvider([]string{token})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	modules := app.BuildModules(nil, slog.New(slog.DiscardHandler), nil)
-	router := NewRouter(RouterConfig{
+	modules := BuildModules(ModuleDeps{Logger: slog.New(slog.DiscardHandler)})
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        contractPinger{},
 		Provider:  provider,

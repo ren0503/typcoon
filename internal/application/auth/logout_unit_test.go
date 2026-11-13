@@ -8,13 +8,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
 )
 
 func TestLogoutHashesTokenAndAuditsFamilyRevocation(t *testing.T) {
 	accountID := uuid.MustParse("44444444-4444-4444-8444-444444444444")
-	store := &fakeServiceStore{refreshToken: &sqlc.RefreshToken{
+	store := &fakeServiceStore{refreshToken: &RefreshToken{
 		SubjectID:   accountID,
 		SubjectType: "account",
 		Client:      ClientGuestMobile,

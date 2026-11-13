@@ -4,14 +4,15 @@ package tenant_test
 
 import (
 	"context"
+	tenantrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/tenant"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
+	"github.com/ren0503/tycoon/internal/application/tenant"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/tenant"
 )
 
 func TestTenantCRUDAndSoftDelete(t *testing.T) {
@@ -20,7 +21,7 @@ func TestTenantCRUDAndSoftDelete(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	svc := tenant.New(h.Pool)
+	svc := tenant.New(tenantrepo.New(h.Pool))
 	system := testutil.SystemPrincipal()
 
 	created, err := svc.Create(ctx, system, tenant.CreateInput{Name: "Acme Cruises"})

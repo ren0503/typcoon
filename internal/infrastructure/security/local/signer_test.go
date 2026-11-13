@@ -1,4 +1,4 @@
-package auth
+package local
 
 import (
 	"context"
@@ -16,10 +16,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+
+	appauth "github.com/ren0503/tycoon/internal/application/auth"
 )
+
+type fixedClock struct {
+	now time.Time
+}
+
+func (c *fixedClock) Now() time.Time { return c.now }
 
 func TestLocalSignerSignsVerifiableJWT(t *testing.T) {
 	signer, err := NewRandomLocalSigner("local-test")
@@ -106,50 +113,6 @@ func TestStaticKeySetPublishesOnlyPublicJWKFields(t *testing.T) {
 	}
 }
 
-type fakeKMSClient struct {
-	key *rsa.PrivateKey
-}
-
-func (f *fakeKMSClient) GetPublicKey(context.Context, *kms.GetPublicKeyInput, ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error) {
-	der, err := x509.MarshalPKIXPublicKey(&f.key.PublicKey)
-	if err != nil {
-		return nil, err
-	}
-	return &kms.GetPublicKeyOutput{PublicKey: der}, nil
-}
-
-func (f *fakeKMSClient) Sign(_ context.Context, input *kms.SignInput, _ ...func(*kms.Options)) (*kms.SignOutput, error) {
-	signature, err := rsa.SignPKCS1v15(rand.Reader, f.key, crypto.SHA256, input.Message)
-	if err != nil {
-		return nil, err
-	}
-	return &kms.SignOutput{Signature: signature}, nil
-}
-
-func TestKMSSignerSignsAndImplementsCryptoSigner(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generate key: %v", err)
-	}
-	client := &fakeKMSClient{key: key}
-	signer, err := NewKMSSigner(context.Background(), client, "kms-test", "arn:aws:kms:test:key/test")
-	if err != nil {
-		t.Fatalf("NewKMSSigner: %v", err)
-	}
-	input := []byte("header.payload")
-	signature, err := signer.SignJWT(context.Background(), input)
-	if err != nil {
-		t.Fatalf("SignJWT: %v", err)
-	}
-	digest := sha256.Sum256(input)
-	if err := rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, digest[:], signature); err != nil {
-		t.Fatalf("verify KMS signature: %v", err)
-	}
-	if signer.Public() == nil {
-		t.Fatal("crypto.Signer Public() returned nil")
-	}
-}
-
 func TestStaticKeySetRotationOverlapVerifiesOldTokens(t *testing.T) {
 	clock := &fixedClock{now: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
 	oldSigner, err := NewRandomLocalSigner("old-key")
@@ -164,12 +127,12 @@ func TestStaticKeySetRotationOverlapVerifiesOldTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("old key set: %v", err)
 	}
-	oldIssuer, err := NewAccessTokenIssuer(oldSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
+	oldIssuer, err := appauth.NewAccessTokenIssuer(oldSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
 	if err != nil {
 		t.Fatalf("old issuer: %v", err)
 	}
 	accountID := uuid.New()
-	oldToken, _, err := oldIssuer.Issue(context.Background(), accountID, ClientGuestMobile)
+	oldToken, _, err := oldIssuer.Issue(context.Background(), accountID, appauth.ClientGuestMobile)
 	if err != nil {
 		t.Fatalf("issue old token: %v", err)
 	}
@@ -178,7 +141,7 @@ func TestStaticKeySetRotationOverlapVerifiesOldTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("overlap key set: %v", err)
 	}
-	overlapIssuer, err := NewAccessTokenIssuer(overlapSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
+	overlapIssuer, err := appauth.NewAccessTokenIssuer(overlapSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
 	if err != nil {
 		t.Fatalf("overlap issuer: %v", err)
 	}
@@ -186,11 +149,11 @@ func TestStaticKeySetRotationOverlapVerifiesOldTokens(t *testing.T) {
 		t.Fatalf("old token did not verify during overlap: %v", err)
 	}
 
-	newToken, _, err := overlapIssuer.Issue(context.Background(), accountID, ClientGuestMobile)
+	newToken, _, err := overlapIssuer.Issue(context.Background(), accountID, appauth.ClientGuestMobile)
 	if err != nil {
 		t.Fatalf("issue new token: %v", err)
 	}
-	parsed, _, err := jwt.NewParser().ParseUnverified(newToken, &AccessClaims{})
+	parsed, _, err := jwt.NewParser().ParseUnverified(newToken, &appauth.AccessClaims{})
 	if err != nil {
 		t.Fatalf("parse new token: %v", err)
 	}
@@ -205,7 +168,7 @@ func TestStaticKeySetRotationOverlapVerifiesOldTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("retired key set: %v", err)
 	}
-	retiredIssuer, err := NewAccessTokenIssuer(retiredSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
+	retiredIssuer, err := appauth.NewAccessTokenIssuer(retiredSet, "test-issuer", "test-audience", 15*time.Minute, time.Minute, clock)
 	if err != nil {
 		t.Fatalf("retired issuer: %v", err)
 	}

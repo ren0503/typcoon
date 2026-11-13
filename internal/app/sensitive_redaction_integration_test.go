@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpserver
+package app
 
 import (
 	"bytes"
@@ -15,9 +15,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ren0503/tycoon/internal/app"
 	"github.com/ren0503/tycoon/internal/application/auth"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
+	httpserver "github.com/ren0503/tycoon/internal/transport/http"
+	authhandlers "github.com/ren0503/tycoon/internal/transport/http/handlers/auth"
+	"github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
 
 func TestSensitiveValuesNeverAppearInResponsesOrLogs(t *testing.T) {
@@ -30,13 +33,13 @@ func TestSensitiveValuesNeverAppearInResponsesOrLogs(t *testing.T) {
 	staffID := h.SeedStaff(t, tenantID, shipID, "EMP-1")
 
 	token := "admin:redact:" + tenantID.String()
-	provider, err := auth.NewDevHeaderProvider([]string{token})
+	provider, err := middleware.NewDevHeaderProvider([]string{token})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
 	var logs bytes.Buffer
-	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
-	router := NewRouter(RouterConfig{
+	modules := BuildModules(integrationModuleDeps(h, slog.New(slog.DiscardHandler)))
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(&logs, nil)),
 		DB:        contractPinger{},
 		Provider:  provider,
@@ -121,12 +124,11 @@ func TestAuthTokensNeverAppearInResponsesOrLogs(t *testing.T) {
 	clock := testutil.NewFakeClock(time.Now().UTC())
 	_, keys := testutil.NewTestKeySet(t, "redact-kid")
 	service, err := auth.NewService(auth.ServiceOptions{
-		Store:      auth.NewStore(h.Pool),
+		Store:      authrepo.NewStore(h.Pool),
 		Verifier:   &testutil.FakeVerifier{Identities: map[string]auth.VerifiedIdentity{firebaseToken: {UID: "redact-auth-uid", Email: email, EmailVerified: true}}},
 		Keys:       keys,
 		Limiter:    &testutil.FakeRateLimiter{},
 		Clock:      clock,
-		Audit:      &testutil.AuditRecorder{},
 		Logger:     logger,
 		Issuer:     "redact-issuer",
 		Audience:   "redact-audience",
@@ -137,11 +139,11 @@ func TestAuthTokensNeverAppearInResponsesOrLogs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
-	router := NewRouter(RouterConfig{
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger: logger,
 		DB:     contractPinger{},
 		PublicAPIRoutes: func(r chi.Router) {
-			auth.RegisterPublicRoutes(r, service)
+			authhandlers.RegisterPublicRoutes(r, service)
 		},
 	})
 

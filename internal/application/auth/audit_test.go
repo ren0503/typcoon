@@ -1,29 +1,16 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-
-	"github.com/ren0503/tycoon/internal/audit"
 )
 
-type captureAudit struct {
-	entries []audit.Entry
-}
-
-func (c *captureAudit) AppendTx(_ context.Context, _ audit.Execer, entry audit.Entry) error {
-	c.entries = append(c.entries, entry)
-	return nil
-}
-
-func TestAppendAuthAuditUsesAllowlistedDetails(t *testing.T) {
-	recorder := &captureAudit{}
+func TestBuildAuthAuditEntryUsesAllowlistedDetails(t *testing.T) {
 	accountID := uuid.New()
-	err := appendAuthAudit(context.Background(), recorder, nil, authAuditEntry{
+	entry, err := buildAuthAuditEntry(authAuditEntry{
 		Action:    ActionSessionIssued,
 		ActorType: ActorAccount,
 		ActorID:   accountID.String(),
@@ -32,12 +19,8 @@ func TestAppendAuthAuditUsesAllowlistedDetails(t *testing.T) {
 		Details:   authAuditDetails{Client: ClientGuestMobile, Provider: "firebase"},
 	})
 	if err != nil {
-		t.Fatalf("appendAuthAudit: %v", err)
+		t.Fatalf("buildAuthAuditEntry: %v", err)
 	}
-	if len(recorder.entries) != 1 {
-		t.Fatalf("entries = %d", len(recorder.entries))
-	}
-	entry := recorder.entries[0]
 	if entry.Source != "cloud" || entry.Action != ActionSessionIssued {
 		t.Fatalf("entry = %+v", entry)
 	}

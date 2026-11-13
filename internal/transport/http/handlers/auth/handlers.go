@@ -57,7 +57,7 @@ func (h *Handler) exchange(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, session.newTokenResponse())
+	httpx.WriteJSON(w, http.StatusOK, newTokenResponse(session))
 }
 
 func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +76,7 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, session.newTokenResponse())
+	httpx.WriteJSON(w, http.StatusOK, newTokenResponse(session))
 }
 
 func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +135,7 @@ func (h *Handler) linkIdentity(w http.ResponseWriter, r *http.Request) {
 		writeAuthError(w, r, err)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, identity.newIdentityResponse())
+	httpx.WriteJSON(w, http.StatusOK, newIdentityResponse(identity))
 }
 
 func (h *Handler) unlinkIdentity(w http.ResponseWriter, r *http.Request) {

@@ -11,17 +11,19 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/ren0503/tycoon/internal/application/auth"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
 )
 
 type exchangeFixture struct {
 	service   auth.Service
-	store     *auth.Store
+	store     *authrepo.Store
+	pool      *pgxpool.Pool
 	verifier  *testutil.FakeVerifier
 	clock     *testutil.FakeClock
-	audit     *testutil.AuditRecorder
 	validator *auth.AccessTokenIssuer
 }
 
@@ -29,15 +31,13 @@ func newExchangeFixture(t *testing.T, h *testutil.Harness, verifier *testutil.Fa
 	t.Helper()
 	clock := testutil.NewFakeClock(time.Date(2026, time.November, 5, 12, 0, 0, 0, time.UTC))
 	_, keys := testutil.NewTestKeySet(t, "test-kid")
-	store := auth.NewStore(h.Pool)
-	auditRecorder := &testutil.AuditRecorder{}
+	store := authrepo.NewStore(h.Pool)
 	service, err := auth.NewService(auth.ServiceOptions{
 		Store:      store,
 		Verifier:   verifier,
 		Keys:       keys,
 		Limiter:    &testutil.FakeRateLimiter{},
 		Clock:      clock,
-		Audit:      auditRecorder,
 		Issuer:     "test-issuer",
 		Audience:   "test-audience",
 		AccessTTL:  15 * time.Minute,
@@ -54,9 +54,9 @@ func newExchangeFixture(t *testing.T, h *testutil.Harness, verifier *testutil.Fa
 	return exchangeFixture{
 		service:   service,
 		store:     store,
+		pool:      h.Pool,
 		verifier:  verifier,
 		clock:     clock,
-		audit:     auditRecorder,
 		validator: validator,
 	}
 }

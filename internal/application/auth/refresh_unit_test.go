@@ -10,11 +10,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
 )
 
-func newRefreshFixture(t *testing.T, row *sqlc.RefreshToken, account sqlc.Account) (authFixture, *fakeServiceStore) {
+func newRefreshFixture(t *testing.T, row *RefreshToken, account Account) (authFixture, *fakeServiceStore) {
 	t.Helper()
 	store := &fakeServiceStore{
 		account:        account,
@@ -22,7 +20,7 @@ func newRefreshFixture(t *testing.T, row *sqlc.RefreshToken, account sqlc.Accoun
 		rotatedAccount: account,
 	}
 	if row != nil {
-		store.rotatedToken = sqlc.RefreshToken{
+		store.rotatedToken = RefreshToken{
 			ID:          uuid.New(),
 			SubjectType: row.SubjectType,
 			SubjectID:   row.SubjectID,
@@ -42,9 +40,9 @@ func newRefreshFixture(t *testing.T, row *sqlc.RefreshToken, account sqlc.Accoun
 
 func TestRefreshHashesTokenForLookupAndSessionLimit(t *testing.T) {
 	const rawToken = "current-refresh-token"
-	account := sqlc.Account{ID: uuid.New(), Status: "active"}
+	account := Account{ID: uuid.New(), Status: "active"}
 	familyID := uuid.New()
-	row := &sqlc.RefreshToken{
+	row := &RefreshToken{
 		ID:          uuid.New(),
 		SubjectType: "account",
 		SubjectID:   account.ID,
@@ -128,8 +126,8 @@ func TestRefreshHashesTokenForLookupAndSessionLimit(t *testing.T) {
 }
 
 func TestRefreshRejectsExpiredAndUnknownTokens(t *testing.T) {
-	account := sqlc.Account{ID: uuid.New(), Status: "active"}
-	row := &sqlc.RefreshToken{
+	account := Account{ID: uuid.New(), Status: "active"}
+	row := &RefreshToken{
 		ID:          uuid.New(),
 		SubjectType: "account",
 		SubjectID:   account.ID,
@@ -163,9 +161,9 @@ func TestRefreshRejectsExpiredAndUnknownTokens(t *testing.T) {
 func TestRefreshReuseReturnsGenericErrorAndDoesNotIssueToken(t *testing.T) {
 	const rawToken = "used-refresh-token"
 	familyID := uuid.New()
-	account := sqlc.Account{ID: uuid.New(), Status: "active"}
+	account := Account{ID: uuid.New(), Status: "active"}
 	usedAt := time.Date(2026, time.November, 5, 12, 1, 0, 0, time.UTC)
-	row := &sqlc.RefreshToken{
+	row := &RefreshToken{
 		ID:          uuid.New(),
 		SubjectType: "account",
 		SubjectID:   account.ID,
@@ -195,8 +193,8 @@ func TestRefreshReuseReturnsGenericErrorAndDoesNotIssueToken(t *testing.T) {
 func TestRefreshRejectsInactiveAccountWithoutRotation(t *testing.T) {
 	for _, status := range []string{"suspended", "deleted"} {
 		t.Run(status, func(t *testing.T) {
-			account := sqlc.Account{ID: uuid.New(), Status: status}
-			row := &sqlc.RefreshToken{
+			account := Account{ID: uuid.New(), Status: status}
+			row := &RefreshToken{
 				ID:          uuid.New(),
 				SubjectType: "account",
 				SubjectID:   account.ID,
@@ -216,7 +214,7 @@ func TestRefreshRejectsInactiveAccountWithoutRotation(t *testing.T) {
 }
 
 func TestRefreshRejectsNonAccountOrInvalidClientRows(t *testing.T) {
-	for _, row := range []*sqlc.RefreshToken{
+	for _, row := range []*RefreshToken{
 		{ID: uuid.New(), SubjectType: "admin", SubjectID: uuid.New(), FamilyID: uuid.New(), Client: ClientGuestMobile, ExpiresAt: time.Now().Add(time.Hour)},
 		{ID: uuid.New(), SubjectType: "account", SubjectID: uuid.New(), FamilyID: uuid.New(), Client: "unknown", ExpiresAt: time.Now().Add(time.Hour)},
 	} {

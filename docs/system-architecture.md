@@ -70,6 +70,36 @@ A single Go codebase structured as a modular monolith with twelve modules. Modul
 
 Ownership boundaries: the table owner is the only module allowed to write its rows. Cross-module reads go through interface methods (for example `ship.Service.TenantID`, `voyage.Service.Lookup`, `booking.Service.BookingExists`) and are re-checked for tenant/ship scope. Audit emission covers `staff`, `booking`, `guest`, `auth`, and ship structure import confirmation in this baseline; `audit.Appender.AppendTx` must be called inside the same transaction as the business write so a failed audit append rolls the write back. The `sync`, `ai`, and `feedback` modules are internal in this phase and register no HTTP routes; `auth` exposes public and protected `/api/auth/*` routes. `change_log` and `ship_seq` remain trigger-owned and are never written by application code.
 
+### 3.2.1 Package Layers and Dependency Direction
+
+The implementation separates business policy from delivery and persistence:
+
+| Layer | Path | Contents |
+| --- | --- | --- |
+| Application | `internal/application/<module>` | Business types, rules, use cases, and consumer-owned repository/transaction ports. |
+| Infrastructure | `internal/infrastructure/...` | pgx/sqlc repositories, AWS/KMS, Redis, Firebase, local security, health, and logging adapters. |
+| Transport | `internal/transport/http/...` | Chi router, middleware, auth providers, handlers, DTOs, and response envelopes. |
+| Platform | `internal/platform/...` | Configuration, shared errors, pagination, and test-only support. |
+| Composition root | `internal/app` | `RunAPI`/`RunMigrations` assembly and lifecycle only. |
+
+Dependencies point inward: application packages import only application and platform packages;
+infrastructure imports application interfaces; transport imports application ports; only the
+composition root imports application and infrastructure together. Application code contains no
+`net/http`, chi, pgx, sqlc, AWS SDK, Redis, or Firebase imports. `internal/app/boundaries_test.go`
+enforces the matrix and rejects import cycles and legacy module paths.
+
+Application modules own their value types and declare the ports they consume. Postgres adapters
+map generated sqlc rows to those types at the boundary. Application services own transaction
+boundaries through module `Tx` interfaces; infrastructure implements them on one pgx
+transaction. Audit policy and `audit.Entry` validation are application-owned, while audit SQL is
+infrastructure-owned. `Tx.AppendAudit` shares the business transaction, so a failed append rolls
+back the business write.
+
+Runtime composition is deployment-specific: `internal/app/api.go` wires PostgreSQL, AWS, auth
+adapters, modules, HTTP, and health checks; `internal/app/migrate.go` wires only PostgreSQL and
+Goose. The `cmd/server` and `cmd/migrate` entrypoints load configuration, logging, and signals and
+call the appropriate composition function.
+
 ### 3.3 Backend Responsibilities
 
 - Manage vessels, voyages, and staff.

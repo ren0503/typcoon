@@ -98,7 +98,7 @@ func (s *KMSSigner) signDigest(ctx context.Context, digest []byte) ([]byte, erro
 	defer cancel()
 	output, err := s.client.Sign(callCtx, &awskms.SignInput{
 		KeyId: aws.String(s.keyARN), Message: digest, MessageType: types.MessageTypeDigest,
-		SigningAlgorithm: types.SigningAlgorithmSpecRsassaPkcs1v15Sha256,
+		SigningAlgorithm: types.SigningAlgorithmSpecRsassaPkcs1V15Sha256,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("sign with KMS: %w", err)

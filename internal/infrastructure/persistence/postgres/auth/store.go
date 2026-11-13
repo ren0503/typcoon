@@ -27,12 +27,12 @@ const (
 // Store owns transactional persistence for authentication state.
 type Store struct {
 	pool *pgxpool.Pool
-	q    *appauth.Queries
+	q    *sqlc.Queries
 }
 
 // NewStore builds the auth persistence layer over PostgreSQL.
 func NewStore(pool *pgxpool.Pool) *Store {
-	return &Store{pool: pool, q: appauth.New(pool)}
+	return &Store{pool: pool, q: sqlc.New(pool)}
 }
 
 // InTx executes fn in a transaction, rolling back on error and committing on success.
@@ -41,7 +41,7 @@ func (s *Store) InTx(ctx context.Context, fn func(*Tx) error) error {
 	if err != nil {
 		return postgres.MapPgError(err)
 	}
-	wrapped := &Tx{tx: transaction, q: appauth.New(transaction)}
+	wrapped := &Tx{tx: transaction, q: sqlc.New(transaction)}
 	if err := fn(wrapped); err != nil {
 		_ = transaction.Rollback(ctx)
 		return err
@@ -55,7 +55,7 @@ func (s *Store) InTx(ctx context.Context, fn func(*Tx) error) error {
 // GetAccount returns a non-deleted account by ID.
 func (s *Store) GetAccount(ctx context.Context, id uuid.UUID) (appauth.Account, error) {
 	row, err := s.q.GetAccount(ctx, id)
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.Account](row), postgres.MapPgError(err)
 }
 
 // GetIdentityByProviderSubject resolves a linked identity.
@@ -74,7 +74,7 @@ func (s *Store) ListAdminShipIDs(ctx context.Context, adminUserID uuid.UUID) ([]
 }
 
 // ResolveActiveAdmin resolves the active grant and its backend-owned scope.
-func (s *Store) ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (AdminAuthority, error) {
+func (s *Store) ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (appauth.AdminAuthority, error) {
 	return resolveActiveAdmin(ctx, s.q, accountID)
 }
 
@@ -199,7 +199,7 @@ func (s *Store) GetRefreshTokenByHash(ctx context.Context, hash []byte) (appauth
 	if errors.Is(err, pgx.ErrNoRows) {
 		return appauth.RefreshToken{}, appauth.ErrRefreshTokenNotFound
 	}
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.RefreshToken](row), postgres.MapPgError(err)
 }
 
 // RevokeRefreshFamilyByHash revokes the family for a presented refresh token.
@@ -362,7 +362,7 @@ func (s *Store) AppendAudit(ctx context.Context, entry audit.Entry) error {
 // Tx is a transactional auth store handle.
 type Tx struct {
 	tx pgx.Tx
-	q  *appauth.Queries
+	q  *sqlc.Queries
 }
 
 // LockAccount serializes identity modifications for one account.
@@ -378,14 +378,14 @@ func (t *Tx) Raw() pgx.Tx {
 }
 
 // Queries exposes generated queries scoped to this transaction.
-func (t *Tx) Queries() *appauth.Queries {
+func (t *Tx) Queries() *sqlc.Queries {
 	return t.q
 }
 
 // GetAccount returns a non-deleted account by ID inside the transaction.
 func (t *Tx) GetAccount(ctx context.Context, id uuid.UUID) (appauth.Account, error) {
 	row, err := t.q.GetAccount(ctx, id)
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.Account](row), postgres.MapPgError(err)
 }
 
 // GetIdentityByProviderSubject resolves a linked identity inside the transaction.
@@ -399,30 +399,30 @@ func (t *Tx) CreateAccountWithIdentity(
 	account appauth.CreateAccountParams,
 	identity appauth.LinkAccountIdentityParams,
 ) (appauth.Account, appauth.AccountIdentity, error) {
-	created, err := t.q.CreateAccount(ctx, account)
+	created, err := t.q.CreateAccount(ctx, convert.To[sqlc.CreateAccountParams](account))
 	if err != nil {
 		return appauth.Account{}, appauth.AccountIdentity{}, mapAuthWriteError(err)
 	}
 	identity.AccountID = created.ID
-	linked, err := t.q.LinkAccountIdentity(ctx, identity)
+	linked, err := t.q.LinkAccountIdentity(ctx, convert.To[sqlc.LinkAccountIdentityParams](identity))
 	if err != nil {
 		return appauth.Account{}, appauth.AccountIdentity{}, mapAuthWriteError(err)
 	}
-	return created, linked, nil
+	return convert.To[appauth.Account](created), convert.To[appauth.AccountIdentity](linked), nil
 }
 
 // CreateIdentity links one provider identity to an existing account.
 func (t *Tx) CreateIdentity(ctx context.Context, identity appauth.LinkAccountIdentityParams) (appauth.AccountIdentity, error) {
-	linked, err := t.q.LinkAccountIdentity(ctx, identity)
+	linked, err := t.q.LinkAccountIdentity(ctx, convert.To[sqlc.LinkAccountIdentityParams](identity))
 	if err != nil {
 		return appauth.AccountIdentity{}, mapAuthWriteError(err)
 	}
-	return linked, nil
+	return convert.To[appauth.AccountIdentity](linked), nil
 }
 
 // DeleteIdentityForAccount deletes an identity only when owned by the account.
 func (t *Tx) DeleteIdentityForAccount(ctx context.Context, identityID, accountID uuid.UUID) (int64, error) {
-	deleted, err := t.q.DeleteAccountIdentityForAccount(ctx, appauth.DeleteAccountIdentityForAccountParams{
+	deleted, err := t.q.DeleteAccountIdentityForAccount(ctx, sqlc.DeleteAccountIdentityForAccountParams{
 		ID:        identityID,
 		AccountID: accountID,
 	})
@@ -440,14 +440,14 @@ func (t *Tx) ListAdminShipIDs(ctx context.Context, adminUserID uuid.UUID) ([]uui
 }
 
 // ResolveActiveAdmin resolves the active grant and its scope inside the transaction.
-func (t *Tx) ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (AdminAuthority, error) {
+func (t *Tx) ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (appauth.AdminAuthority, error) {
 	return resolveActiveAdmin(ctx, t.q, accountID)
 }
 
 // CreateRefreshToken inserts one refresh-token row.
 func (t *Tx) CreateRefreshToken(ctx context.Context, params appauth.CreateRefreshTokenParams) (appauth.RefreshToken, error) {
-	row, err := t.q.CreateRefreshToken(ctx, params)
-	return row, postgres.MapPgError(err)
+	row, err := t.q.CreateRefreshToken(ctx, convert.To[sqlc.CreateRefreshTokenParams](params))
+	return convert.To[appauth.RefreshToken](row), postgres.MapPgError(err)
 }
 
 // GetRefreshTokenByHashForUpdate locks a refresh-token row by hash.
@@ -456,7 +456,7 @@ func (t *Tx) GetRefreshTokenByHashForUpdate(ctx context.Context, hash []byte) (a
 	if errors.Is(err, pgx.ErrNoRows) {
 		return appauth.RefreshToken{}, appauth.ErrRefreshTokenNotFound
 	}
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.RefreshToken](row), postgres.MapPgError(err)
 }
 
 // MarkRefreshTokenUsed marks an unused row used and links its replacement.
@@ -465,11 +465,11 @@ func (t *Tx) MarkRefreshTokenUsed(ctx context.Context, id uuid.UUID, replacedBy 
 	if replacedBy != nil {
 		replacement = uuid.NullUUID{UUID: *replacedBy, Valid: true}
 	}
-	row, err := t.q.MarkRefreshTokenUsed(ctx, appauth.MarkRefreshTokenUsedParams{
+	row, err := t.q.MarkRefreshTokenUsed(ctx, sqlc.MarkRefreshTokenUsedParams{
 		ID:         id,
 		ReplacedBy: replacement,
 	})
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.RefreshToken](row), postgres.MapPgError(err)
 }
 
 // RevokeRefreshTokenFamily revokes every token in a session family.
@@ -484,35 +484,35 @@ func (t *Tx) RevokeAccountRefreshTokens(ctx context.Context, accountID uuid.UUID
 	return revoked, postgres.MapPgError(err)
 }
 
-func getIdentityByProviderSubject(ctx context.Context, q *appauth.Queries, provider, subject string) (appauth.AccountIdentity, error) {
-	row, err := q.GetAccountIdentityByProviderSubject(ctx, appauth.GetAccountIdentityByProviderSubjectParams{
+func getIdentityByProviderSubject(ctx context.Context, q *sqlc.Queries, provider, subject string) (appauth.AccountIdentity, error) {
+	row, err := q.GetAccountIdentityByProviderSubject(ctx, sqlc.GetAccountIdentityByProviderSubjectParams{
 		Provider:    provider,
 		ProviderSub: subject,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return appauth.AccountIdentity{}, appauth.ErrIdentityNotFound
 	}
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.AccountIdentity](row), postgres.MapPgError(err)
 }
 
-func getActiveAdminByAccountID(ctx context.Context, q *appauth.Queries, accountID uuid.UUID) (appauth.AdminUser, error) {
+func getActiveAdminByAccountID(ctx context.Context, q *sqlc.Queries, accountID uuid.UUID) (appauth.AdminUser, error) {
 	row, err := q.GetActiveAdminUserByAccountID(ctx, uuid.NullUUID{UUID: accountID, Valid: true})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return appauth.AdminUser{}, appauth.ErrAdminGrantNotFound
 	}
-	return row, postgres.MapPgError(err)
+	return convert.To[appauth.AdminUser](row), postgres.MapPgError(err)
 }
 
-func resolveActiveAdmin(ctx context.Context, q *appauth.Queries, accountID uuid.UUID) (AdminAuthority, error) {
+func resolveActiveAdmin(ctx context.Context, q *sqlc.Queries, accountID uuid.UUID) (appauth.AdminAuthority, error) {
 	admin, err := getActiveAdminByAccountID(ctx, q, accountID)
 	if err != nil {
-		return AdminAuthority{}, err
+		return appauth.AdminAuthority{}, err
 	}
 	shipIDs, err := listAdminShipIDs(ctx, q, admin.ID)
 	if err != nil {
-		return AdminAuthority{}, err
+		return appauth.AdminAuthority{}, err
 	}
-	return AdminAuthority{
+	return appauth.AdminAuthority{
 		AdminUserID: admin.ID,
 		Role:        admin.Role,
 		TenantID:    admin.TenantID,
@@ -520,7 +520,7 @@ func resolveActiveAdmin(ctx context.Context, q *appauth.Queries, accountID uuid.
 	}, nil
 }
 
-func listAdminShipIDs(ctx context.Context, q *appauth.Queries, adminUserID uuid.UUID) ([]uuid.UUID, error) {
+func listAdminShipIDs(ctx context.Context, q *sqlc.Queries, adminUserID uuid.UUID) ([]uuid.UUID, error) {
 	rows, err := q.ListAdminShipAccess(ctx, adminUserID)
 	if err != nil {
 		return nil, postgres.MapPgError(err)

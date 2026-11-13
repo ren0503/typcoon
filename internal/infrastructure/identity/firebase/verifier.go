@@ -1,4 +1,5 @@
-package auth
+// Package firebase implements Firebase ID-token verification.
+package firebase
 
 import (
 	"context"
@@ -10,27 +11,9 @@ import (
 	firebase "firebase.google.com/go/v4"
 	firebaseauth "firebase.google.com/go/v4/auth"
 	"google.golang.org/api/option"
+
+	appauth "github.com/ren0503/tycoon/internal/application/auth"
 )
-
-var (
-	// ErrInvalidFirebaseToken indicates a token that failed Firebase verification.
-	ErrInvalidFirebaseToken = errors.New("invalid Firebase ID token")
-	// ErrFirebaseUnavailable indicates that verification could not be completed safely.
-	ErrFirebaseUnavailable = errors.New("firebase verification unavailable")
-)
-
-// VerifiedIdentity is the verified subset of a Firebase ID token used by auth.
-type VerifiedIdentity struct {
-	UID           string
-	Email         string
-	EmailVerified bool
-	DisplayName   string
-}
-
-// Verifier verifies a Firebase ID Token and returns stable identity fields.
-type Verifier interface {
-	Verify(ctx context.Context, idToken string) (VerifiedIdentity, error)
-}
 
 // FirebaseVerifierConfig holds Firebase Admin SDK initialization settings.
 type FirebaseVerifierConfig struct {
@@ -82,23 +65,23 @@ func NewFirebaseVerifier(ctx context.Context, cfg FirebaseVerifierConfig) (*Fire
 }
 
 // Verify validates the token signature, project audience, and revocation state.
-func (v *FirebaseVerifier) Verify(ctx context.Context, idToken string) (VerifiedIdentity, error) {
+func (v *FirebaseVerifier) Verify(ctx context.Context, idToken string) (appauth.VerifiedIdentity, error) {
 	if v.client == nil {
-		return VerifiedIdentity{}, ErrFirebaseUnavailable
+		return appauth.VerifiedIdentity{}, appauth.ErrFirebaseUnavailable
 	}
 
 	token, err := v.client.VerifyIDTokenAndCheckRevoked(ctx, idToken)
 	if err != nil {
 		if firebaseauth.IsIDTokenInvalid(err) {
-			return VerifiedIdentity{}, ErrInvalidFirebaseToken
+			return appauth.VerifiedIdentity{}, appauth.ErrInvalidFirebaseToken
 		}
-		return VerifiedIdentity{}, fmt.Errorf("%w: %v", ErrFirebaseUnavailable, err)
+		return appauth.VerifiedIdentity{}, fmt.Errorf("%w: %v", appauth.ErrFirebaseUnavailable, err)
 	}
 	if strings.TrimSpace(token.UID) == "" {
-		return VerifiedIdentity{}, ErrInvalidFirebaseToken
+		return appauth.VerifiedIdentity{}, appauth.ErrInvalidFirebaseToken
 	}
 
-	identity := VerifiedIdentity{UID: token.UID}
+	identity := appauth.VerifiedIdentity{UID: token.UID}
 	if email, ok := token.Claims["email"].(string); ok {
 		if verified, _ := token.Claims["email_verified"].(bool); verified {
 			identity.Email = email
@@ -111,4 +94,4 @@ func (v *FirebaseVerifier) Verify(ctx context.Context, idToken string) (Verified
 	return identity, nil
 }
 
-var _ Verifier = (*FirebaseVerifier)(nil)
+var _ appauth.Verifier = (*FirebaseVerifier)(nil)

@@ -43,7 +43,7 @@ type identityResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func (identity Identity) newIdentityResponse() identityResponse {
+func newIdentityResponse(identity Identity) identityResponse {
 	return identityResponse{
 		ID:        identity.ID,
 		AccountID: identity.AccountID,
@@ -69,7 +69,7 @@ type tokenResponse struct {
 	Session      sessionResponse `json:"session"`
 }
 
-func (session IssuedSession) newTokenResponse() tokenResponse {
+func newTokenResponse(session IssuedSession) tokenResponse {
 	expiresIn := int64(math.Ceil(time.Until(session.AccessExpiresAt).Seconds()))
 	if expiresIn < 1 {
 		expiresIn = 1

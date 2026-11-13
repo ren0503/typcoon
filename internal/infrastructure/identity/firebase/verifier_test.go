@@ -1,4 +1,4 @@
-package auth
+package firebase
 
 import (
 	"context"
@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	firebaseauth "firebase.google.com/go/v4/auth"
+
+	appauth "github.com/ren0503/tycoon/internal/application/auth"
 )
 
 type fakeFirebaseAuthClient struct {
@@ -59,7 +61,7 @@ func TestFirebaseVerifierIgnoresCustomAuthorizationClaims(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	want := VerifiedIdentity{
+	want := appauth.VerifiedIdentity{
 		UID:           "firebase-uid",
 		Email:         "admin@example.com",
 		EmailVerified: true,
@@ -94,8 +96,8 @@ func TestFirebaseVerifierFailsClosed(t *testing.T) {
 		client: &fakeFirebaseAuthClient{err: errors.New("network unavailable")},
 	}
 	_, err := verifier.Verify(context.Background(), "firebase-token")
-	if !errors.Is(err, ErrFirebaseUnavailable) {
-		t.Fatalf("err = %v, want ErrFirebaseUnavailable", err)
+	if !errors.Is(err, appauth.ErrFirebaseUnavailable) {
+		t.Fatalf("err = %v, want appauth.ErrFirebaseUnavailable", err)
 	}
 }
 
@@ -105,7 +107,7 @@ func TestFirebaseVerifierWithoutProjectIsUnavailable(t *testing.T) {
 		t.Fatalf("NewFirebaseVerifier: %v", err)
 	}
 	_, err = verifier.Verify(context.Background(), "firebase-token")
-	if !errors.Is(err, ErrFirebaseUnavailable) {
-		t.Fatalf("err = %v, want ErrFirebaseUnavailable", err)
+	if !errors.Is(err, appauth.ErrFirebaseUnavailable) {
+		t.Fatalf("err = %v, want appauth.ErrFirebaseUnavailable", err)
 	}
 }

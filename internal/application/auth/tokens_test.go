@@ -20,11 +20,8 @@ func (c *fixedClock) Now() time.Time {
 
 func newTokenIssuer(t *testing.T) (*AccessTokenIssuer, *fixedClock) {
 	t.Helper()
-	signer, err := NewRandomLocalSigner("token-test")
-	if err != nil {
-		t.Fatalf("NewRandomLocalSigner: %v", err)
-	}
-	keys, err := NewStaticKeySet("token-test", signer)
+	signer := newTestSigner(t, "token-test")
+	keys, err := newTestKeySet(t, "token-test", signer)
 	if err != nil {
 		t.Fatalf("NewStaticKeySet: %v", err)
 	}
@@ -63,11 +60,8 @@ func TestAccessTokenRejectsInvalidClientAndLongTTL(t *testing.T) {
 	if _, _, err := issuer.Issue(context.Background(), uuid.New(), "browser"); err == nil {
 		t.Fatal("expected invalid client error")
 	}
-	signer, err := NewRandomLocalSigner("token-test")
-	if err != nil {
-		t.Fatalf("NewRandomLocalSigner: %v", err)
-	}
-	keys, err := NewStaticKeySet("token-test", signer)
+	signer := newTestSigner(t, "token-test")
+	keys, err := newTestKeySet(t, "token-test", signer)
 	if err != nil {
 		t.Fatalf("NewStaticKeySet: %v", err)
 	}

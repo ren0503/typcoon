@@ -135,7 +135,7 @@ schema. `00004_ship_structure_imports.sql` adds the cloud-only `ship_structure_i
 
 ## Database Access Generation
 
-Queries live in `db/queries`; generated code lives in `internal/database/sqlc` and must not be
+Queries live in `db/queries`; generated code lives in `internal/infrastructure/persistence/postgres/sqlc` and must not be
 hand-edited. Regenerate with `make sqlc`.
 
 ## AWS
@@ -170,35 +170,28 @@ A remote state backend is intentionally deferred to future work.
 ## Project Layout
 
 ```text
-cmd/                 Executables (server, migrate)
-internal/            Private application packages
-  app/               Bootstrap, lifecycle, module composition
-  tenant/            Tenant module (service, repo, handlers)
-  ship/              Ships/decks/areas/rooms module
-  voyage/            Ports/voyages/port-calls module
-  staff/             Staff/leaves/credentials/shifts/coverage/labor/autonomy module
-  partner/           Partners/contracts/staff/services/slots module
-  booking/           Bookings and service bookings module
-  guest/             Guests and boarding passes module
-  sync/              Device/credential/snapshot/job lifecycle (no HTTP routes)
-  ai/                AI parameter metadata (no HTTP routes)
-  feedback/          Feedback responses and insights (no HTTP routes)
-  auth/              Firebase SSO, backend tokens, principal provider, and account service
-  audit/             Audit appender (same-transaction emission)
-  ownership/         Table-to-module ownership map and CI guard
-  httpx/             Shared JSON/error/pagination handler helpers
-  config/            Environment configuration and validation
-  logging/           Structured logging
-  database/          pgxpool lifecycle and migrations
-  database/sqlc/     Generated database access
-  awsconfig/         AWS SDK v2 configuration
-  httpserver/        HTTP server, router, handlers, middleware
-  health/            Database health monitor
-  apperrors/         Shared error types
-  testutil/          Integration test helpers
-db/                  Migrations and queries
-terraform/           Minimal AWS infrastructure scaffold
+cmd/                        Executables (server, migrate)
+internal/                   Private application packages
+  app/                      Composition root: API and migration runtime assembly
+  application/              Business types, rules, use cases, and consumer-owned ports
+    tenant/ ship/ voyage/   Business modules
+    staff/ partner/ booking/
+    guest/ auth/ ownership/
+    sync/ ai/ feedback/ audit/
+  infrastructure/           Concrete adapters
+    persistence/postgres/   pgx/sqlc repositories, migrations, and generated queries
+    security/               KMS and local signing, local document cipher
+    identity/firebase/      Firebase token verifier
+    cache/redis/            Shared rate limiter
+    aws/ health/            AWS configuration and health checks
+    observability/logging/  Structured logging
+  transport/http/           Chi router, middleware, handlers, DTOs, httpx helpers
+  platform/                 Config, shared errors, pagination, test-only support
+db/                         Migrations and sqlc queries
+docs/adr/                   Architecture decision records
+terraform/                  Minimal AWS infrastructure scaffold
 ```
+
 
 ## Testing
 

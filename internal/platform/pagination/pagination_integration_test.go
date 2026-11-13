@@ -4,18 +4,22 @@ package pagination_test
 
 import (
 	"context"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
+	bookingrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/booking"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	tenantrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/tenant"
+	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/booking"
+	"github.com/ren0503/tycoon/internal/application/booking"
+	"github.com/ren0503/tycoon/internal/application/ship"
+	"github.com/ren0503/tycoon/internal/application/tenant"
+	"github.com/ren0503/tycoon/internal/application/voyage"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
-	"github.com/ren0503/tycoon/internal/tenant"
-	"github.com/ren0503/tycoon/internal/voyage"
 )
 
 func TestCursorPaginationHasNoDuplicatesOrSkips(t *testing.T) {
@@ -33,7 +37,7 @@ func TestCursorPaginationHasNoDuplicatesOrSkips(t *testing.T) {
 		}
 	}
 
-	tenantSvc := tenant.New(h.Pool)
+	tenantSvc := tenant.New(tenantrepo.New(h.Pool))
 	system := testutil.SystemPrincipal()
 	tenantFilter := pagination.FilterHash("tenants", uuid.Nil.String())
 	assertWalk(t, total, func(cursor string, limit int32) ([]uuid.UUID, string, error) {
@@ -50,9 +54,9 @@ func TestCursorPaginationHasNoDuplicatesOrSkips(t *testing.T) {
 	}, seeded)
 
 	principal := testutil.Principal(h.SeedTenant(t))
-	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
+	shipSvc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 	shipRow := h.SeedShip(t, principal.TenantID)
-	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
+	voyageSvc := voyage.New(voyagerepo.New(h.Pool), testutil.Logger(t), shipSvc)
 	departure := time.Now().UTC().Add(24 * time.Hour)
 	voyageID := h.SeedVoyage(t, shipRow, "PAGE-1", departure)
 	bookingIDs := make(map[uuid.UUID]bool, total)
@@ -65,7 +69,7 @@ func TestCursorPaginationHasNoDuplicatesOrSkips(t *testing.T) {
 			t.Fatalf("seed booking: %v", err)
 		}
 	}
-	bookingSvc := booking.New(h.Pool, shipSvc, voyageSvc, nil, auth.NewAccountService(h.Pool), nil)
+	bookingSvc := booking.New(bookingrepo.New(h.Pool), shipSvc, voyageSvc, nil, authrepo.NewAccountService(h.Pool))
 	assertWalk(t, total, func(cursor string, limit int32) ([]uuid.UUID, string, error) {
 		page, err := bookingSvc.ListBookings(ctx, principal, &shipRow, cursor, limit)
 		ids := make([]uuid.UUID, len(page.Items))

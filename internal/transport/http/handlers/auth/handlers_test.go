@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/ren0503/tycoon/internal/infrastructure/security/local"
 )
 
 type jwksOnlyService struct {
@@ -25,11 +27,11 @@ func (s jwksOnlyService) JWKS(context.Context) ([]JWK, error) {
 }
 
 func TestJWKSHandlerPublishesOnlyPublicKeysWithPublicCache(t *testing.T) {
-	signer, err := NewRandomLocalSigner("active-key")
+	signer, err := local.NewRandomLocalSigner("active-key")
 	if err != nil {
 		t.Fatalf("NewRandomLocalSigner: %v", err)
 	}
-	keySet, err := NewStaticKeySet("active-key", signer)
+	keySet, err := local.NewStaticKeySet("active-key", signer)
 	if err != nil {
 		t.Fatalf("NewStaticKeySet: %v", err)
 	}

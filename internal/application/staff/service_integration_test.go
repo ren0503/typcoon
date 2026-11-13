@@ -4,14 +4,14 @@ package staff_test
 
 import (
 	"context"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	staffrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/staff"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
+	"github.com/ren0503/tycoon/internal/application/ship"
+	"github.com/ren0503/tycoon/internal/application/staff"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
-	"github.com/ren0503/tycoon/internal/staff"
 )
 
 func TestStaffModuleValidationAndCredentials(t *testing.T) {
@@ -21,12 +21,12 @@ func TestStaffModuleValidationAndCredentials(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
+	shipSvc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Staff Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)
 	}
-	svc := staff.New(h.Pool, testutil.Logger(t), shipSvc, nil)
+	svc := staff.New(staffrepo.New(h.Pool), testutil.Logger(t), shipSvc)
 
 	member, err := svc.CreateStaff(ctx, principal, staff.StaffInput{
 		ShipID: &shipRow.ID, EmployeeCode: "EMP-1", FullName: "Ada Crew", Department: "security",
@@ -54,8 +54,8 @@ func TestStaffModuleValidationAndCredentials(t *testing.T) {
 
 	template, err := svc.CreateShiftTemplate(ctx, principal, shipRow.ID, staff.ShiftTemplateInput{
 		Department: "security", Code: "NIGHT", Name: "Night",
-		StartTime: pgtype.Time{Microseconds: 22 * 3600 * 1e6, Valid: true},
-		EndTime:   pgtype.Time{Microseconds: 6 * 3600 * 1e6, Valid: true},
+		StartTime: staff.TimeOfDay{Microseconds: 22 * 3600 * 1e6, Valid: true},
+		EndTime:   staff.TimeOfDay{Microseconds: 6 * 3600 * 1e6, Valid: true},
 	})
 	if err != nil {
 		t.Fatalf("create shift template: %v", err)

@@ -1,4 +1,4 @@
-package auth
+package middleware
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
+	appauth "github.com/ren0503/tycoon/internal/application/auth"
 )
 
 // ErrUnauthenticated indicates that no valid principal could be resolved.
@@ -16,7 +16,7 @@ var ErrUnauthenticated = errors.New("unauthenticated")
 
 // Provider resolves the caller's Principal from an HTTP request.
 type Provider interface {
-	Authenticate(r *http.Request) (Principal, error)
+	Authenticate(r *http.Request) (appauth.Principal, error)
 }
 
 // DenyAllProvider rejects every request. It is the safe default until the
@@ -24,22 +24,22 @@ type Provider interface {
 type DenyAllProvider struct{}
 
 // Authenticate always fails.
-func (DenyAllProvider) Authenticate(*http.Request) (Principal, error) {
-	return Principal{}, ErrUnauthenticated
+func (DenyAllProvider) Authenticate(*http.Request) (appauth.Principal, error) {
+	return appauth.Principal{}, ErrUnauthenticated
 }
 
 // DevHeaderProvider resolves principals from explicit development headers. It
 // only accepts principals present in the configured allowlist; the config
 // layer prevents it from activating in production.
 type DevHeaderProvider struct {
-	allowed map[string]Principal
+	allowed map[string]appauth.Principal
 }
 
 // NewDevHeaderProvider builds a provider from an allowlist of principal
 // descriptors. Each descriptor uses the form
 // "<actorType>:<actorID>:<tenantID>" with optional ":<shipID>,<shipID>".
 func NewDevHeaderProvider(entries []string) (*DevHeaderProvider, error) {
-	allowed := make(map[string]Principal, len(entries))
+	allowed := make(map[string]appauth.Principal, len(entries))
 	for _, entry := range entries {
 		principal, _, err := parseDevEntry(entry)
 		if err != nil {
@@ -50,44 +50,44 @@ func NewDevHeaderProvider(entries []string) (*DevHeaderProvider, error) {
 	return &DevHeaderProvider{allowed: allowed}, nil
 }
 
-func (p *DevHeaderProvider) Authenticate(r *http.Request) (Principal, error) {
+func (p *DevHeaderProvider) Authenticate(r *http.Request) (appauth.Principal, error) {
 	id := strings.TrimSpace(r.Header.Get("X-Dev-Principal"))
 	if id == "" {
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 	principal, ok := p.allowed[id]
 	if !ok {
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 	principal.Dev = true
 	return principal, nil
 }
 
-func parseDevEntry(entry string) (Principal, string, error) {
+func parseDevEntry(entry string) (appauth.Principal, string, error) {
 	parts := strings.Split(entry, ":")
 	if len(parts) < 3 || len(parts) > 4 {
-		return Principal{}, "", errors.New("invalid dev principal entry")
+		return appauth.Principal{}, "", errors.New("invalid dev principal entry")
 	}
-	actorType := ActorType(strings.TrimSpace(parts[0]))
+	actorType := appauth.ActorType(strings.TrimSpace(parts[0]))
 	switch actorType {
-	case ActorAdmin, ActorAccount, ActorStaff, ActorSystem:
+	case appauth.ActorAdmin, appauth.ActorAccount, appauth.ActorStaff, appauth.ActorSystem:
 	default:
-		return Principal{}, "", errors.New("invalid dev principal actor type")
+		return appauth.Principal{}, "", errors.New("invalid dev principal actor type")
 	}
 	actorID := strings.TrimSpace(parts[1])
 	if actorID == "" {
-		return Principal{}, "", errors.New("invalid dev principal actor id")
+		return appauth.Principal{}, "", errors.New("invalid dev principal actor id")
 	}
 	tenantID, err := uuid.Parse(strings.TrimSpace(parts[2]))
 	if err != nil {
-		return Principal{}, "", errors.New("invalid dev principal tenant id")
+		return appauth.Principal{}, "", errors.New("invalid dev principal tenant id")
 	}
-	principal := Principal{ActorType: actorType, ActorID: actorID, TenantID: tenantID}
+	principal := appauth.Principal{ActorType: actorType, ActorID: actorID, TenantID: tenantID}
 	if len(parts) == 4 && strings.TrimSpace(parts[3]) != "" {
 		for _, raw := range strings.Split(parts[3], ",") {
 			shipID, err := uuid.Parse(strings.TrimSpace(raw))
 			if err != nil {
-				return Principal{}, "", errors.New("invalid dev principal ship id")
+				return appauth.Principal{}, "", errors.New("invalid dev principal ship id")
 			}
 			principal.ShipIDs = append(principal.ShipIDs, shipID)
 		}
@@ -95,19 +95,21 @@ func parseDevEntry(entry string) (Principal, string, error) {
 	return principal, actorID, nil
 }
 
-type accountLookup interface {
-	GetAccount(ctx context.Context, id uuid.UUID) (sqlc.Account, error)
-	ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (AdminAuthority, error)
+// AccountLookup resolves active accounts and administrator authority for the
+// access-token provider.
+type AccountLookup interface {
+	GetAccount(ctx context.Context, id uuid.UUID) (appauth.Account, error)
+	ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (appauth.AdminAuthority, error)
 }
 
 // AccessTokenProvider resolves principals from backend-issued access tokens.
 type AccessTokenProvider struct {
-	tokens   *AccessTokenIssuer
-	accounts accountLookup
+	tokens   *appauth.AccessTokenIssuer
+	accounts AccountLookup
 }
 
 // NewAccessTokenProvider builds the bearer access-token provider.
-func NewAccessTokenProvider(tokens *AccessTokenIssuer, accounts accountLookup) (*AccessTokenProvider, error) {
+func NewAccessTokenProvider(tokens *appauth.AccessTokenIssuer, accounts AccountLookup) (*AccessTokenProvider, error) {
 	if tokens == nil {
 		return nil, errors.New("access token issuer is required")
 	}
@@ -118,33 +120,33 @@ func NewAccessTokenProvider(tokens *AccessTokenIssuer, accounts accountLookup) (
 }
 
 // Authenticate validates the bearer token and resolves the active account.
-func (p *AccessTokenProvider) Authenticate(r *http.Request) (Principal, error) {
+func (p *AccessTokenProvider) Authenticate(r *http.Request) (appauth.Principal, error) {
 	raw, ok := bearerToken(r)
 	if !ok {
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 	claims, err := p.tokens.Validate(r.Context(), raw)
 	if err != nil {
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 	accountID, err := uuid.Parse(claims.Subject)
 	if err != nil {
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 	account, err := p.accounts.GetAccount(r.Context(), accountID)
 	if err != nil || account.Status != "active" || account.DeletedAt != nil {
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 	switch claims.Client {
-	case ClientGuestMobile:
-		return Principal{ActorType: ActorAccount, ActorID: account.ID.String(), AccountID: account.ID}, nil
-	case ClientFleetConsole:
+	case appauth.ClientGuestMobile:
+		return appauth.Principal{ActorType: appauth.ActorAccount, ActorID: account.ID.String(), AccountID: account.ID}, nil
+	case appauth.ClientFleetConsole:
 		authority, err := p.accounts.ResolveActiveAdmin(r.Context(), accountID)
 		if err != nil {
-			return Principal{}, ErrUnauthenticated
+			return appauth.Principal{}, ErrUnauthenticated
 		}
-		return Principal{
-			ActorType: ActorAdmin,
+		return appauth.Principal{
+			ActorType: appauth.ActorAdmin,
 			ActorID:   authority.AdminUserID.String(),
 			AccountID: accountID,
 			TenantID:  authority.TenantID,
@@ -152,7 +154,7 @@ func (p *AccessTokenProvider) Authenticate(r *http.Request) (Principal, error) {
 			ShipIDs:   authority.ShipIDs,
 		}, nil
 	default:
-		return Principal{}, ErrUnauthenticated
+		return appauth.Principal{}, ErrUnauthenticated
 	}
 }
 

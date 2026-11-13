@@ -8,17 +8,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/booking"
+	appaudit "github.com/ren0503/tycoon/internal/application/audit"
+	"github.com/ren0503/tycoon/internal/application/booking"
+	"github.com/ren0503/tycoon/internal/application/ship"
+	"github.com/ren0503/tycoon/internal/application/voyage"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
+	bookingrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/booking"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
-	"github.com/ren0503/tycoon/internal/voyage"
 )
 
-type failingAppender struct{}
+type failingRepo struct{ booking.Repository }
 
-func (failingAppender) AppendTx(context.Context, audit.Execer, audit.Entry) error {
+func (r failingRepo) Begin(ctx context.Context) (booking.Tx, error) {
+	tx, err := r.Repository.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return failingTx{tx}, nil
+}
+
+type failingTx struct{ booking.Tx }
+
+func (failingTx) AppendAudit(context.Context, appaudit.Entry) error {
 	return errors.New("forced audit failure")
 }
 
@@ -34,15 +47,15 @@ func TestFailedMultiWriteRollsBackAndLeavesNoChangeLog(t *testing.T) {
 	voyageID := h.SeedVoyage(t, shipID, "TX-1", departure)
 	accountID := h.SeedAccount(t)
 
-	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
-	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
-	accountSvc := auth.NewAccountService(h.Pool)
+	shipSvc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
+	voyageSvc := voyage.New(voyagerepo.New(h.Pool), testutil.Logger(t), shipSvc)
+	accountSvc := authrepo.NewAccountService(h.Pool)
 	input := booking.BookingInput{
 		ShipID: shipID, VoyageID: voyageID, AccountID: &accountID,
 		EmbarkSeq: 1, DisembarkSeq: 5, IdempotencyKey: "tx-rollback",
 	}
 
-	failing := booking.New(h.Pool, shipSvc, voyageSvc, nil, accountSvc, failingAppender{})
+	failing := booking.New(failingRepo{bookingrepo.New(h.Pool)}, shipSvc, voyageSvc, nil, accountSvc)
 	if _, err := failing.CreateBooking(ctx, principal, input); err == nil {
 		t.Fatal("expected forced audit failure")
 	}
@@ -51,7 +64,7 @@ func TestFailedMultiWriteRollsBackAndLeavesNoChangeLog(t *testing.T) {
 	assertCount(t, h, `SELECT count(*) FROM audit_log`, 0)
 	assertCount(t, h, `SELECT count(*) FROM change_log WHERE ship_id = $1`, 0, shipID)
 
-	success := booking.New(h.Pool, shipSvc, voyageSvc, nil, accountSvc, audit.NewStore(h.Pool, testutil.Logger(t)))
+	success := booking.New(bookingrepo.New(h.Pool), shipSvc, voyageSvc, nil, accountSvc)
 	row, err := success.CreateBooking(ctx, principal, input)
 	if err != nil {
 		t.Fatalf("create booking with audit: %v", err)

@@ -4,11 +4,12 @@ package ship_test
 
 import (
 	"context"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
 	"testing"
 	"time"
 
+	"github.com/ren0503/tycoon/internal/application/ship"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
 )
 
 func TestShipModuleCRUDAndConstraints(t *testing.T) {
@@ -19,7 +20,7 @@ func TestShipModuleCRUDAndConstraints(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	svc := ship.New(h.Pool, testutil.Logger(t), nil)
+	svc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 
 	imo := "IMO1234567"
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Oceanic", ImoNumber: &imo, Timezone: "Europe/Lisbon"})

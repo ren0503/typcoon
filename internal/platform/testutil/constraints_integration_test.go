@@ -4,19 +4,23 @@ package testutil_test
 
 import (
 	"context"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
+	bookingrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/booking"
+	partnerrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/partner"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	staffrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/staff"
+	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/booking"
-	"github.com/ren0503/tycoon/internal/partner"
+	"github.com/ren0503/tycoon/internal/application/booking"
+	"github.com/ren0503/tycoon/internal/application/partner"
+	"github.com/ren0503/tycoon/internal/application/ship"
+	"github.com/ren0503/tycoon/internal/application/staff"
+	"github.com/ren0503/tycoon/internal/application/voyage"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
-	"github.com/ren0503/tycoon/internal/staff"
-	"github.com/ren0503/tycoon/internal/voyage"
 )
 
 func TestConstraintMatrixSurfacesMappedErrors(t *testing.T) {
@@ -26,14 +30,13 @@ func TestConstraintMatrixSurfacesMappedErrors(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
+	shipSvc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 	baseShip := h.SeedShip(t, tenantID)
 	deckID := h.SeedDeck(t, baseShip, 1)
-	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
-	auditStore := audit.NewStore(h.Pool, testutil.Logger(t))
-	staffSvc := staff.New(h.Pool, testutil.Logger(t), shipSvc, auditStore)
-	partnerSvc := partner.New(h.Pool, shipSvc)
-	bookingSvc := booking.New(h.Pool, shipSvc, voyageSvc, partnerSvc, auth.NewAccountService(h.Pool), auditStore)
+	voyageSvc := voyage.New(voyagerepo.New(h.Pool), testutil.Logger(t), shipSvc)
+	staffSvc := staff.New(staffrepo.New(h.Pool), testutil.Logger(t), shipSvc)
+	partnerSvc := partner.New(partnerrepo.New(h.Pool), shipSvc)
+	bookingSvc := booking.New(bookingrepo.New(h.Pool), shipSvc, voyageSvc, partnerSvc, authrepo.NewAccountService(h.Pool))
 
 	departure := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
 	baseVoyage := h.SeedVoyage(t, baseShip, "MATRIX-1", departure)

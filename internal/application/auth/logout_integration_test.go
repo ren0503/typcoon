@@ -12,12 +12,12 @@ import (
 	"github.com/ren0503/tycoon/internal/platform/testutil"
 )
 
-func countAuditAction(f exchangeFixture, action string) int {
-	count := 0
-	for _, got := range f.audit.Actions() {
-		if got == action {
-			count++
-		}
+func countAuditAction(t *testing.T, f exchangeFixture, action string) int {
+	t.Helper()
+	var count int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_log WHERE action = $1`, action).Scan(&count); err != nil {
+		t.Fatalf("query audit action %s: %v", action, err)
 	}
 	return count
 }
@@ -122,7 +122,7 @@ func TestLogoutAllRevokesGuestFleetAndOnlyThatAccount(t *testing.T) {
 	if otherRow := readRefreshToken(t, h, otherSession.RefreshToken); otherRow.RevokedAt != nil {
 		t.Fatal("logout-all revoked another account's family")
 	}
-	if got := countAuditAction(f, auth.ActionSessionRevokedAll); got != 1 {
+	if got := countAuditAction(t, f, auth.ActionSessionRevokedAll); got != 1 {
 		t.Fatalf("logout-all audit entries = %d, want 1", got)
 	}
 
@@ -141,7 +141,7 @@ func TestLogoutAllRevokesGuestFleetAndOnlyThatAccount(t *testing.T) {
 	if err := f.service.LogoutAll(context.Background(), accountID); err != nil {
 		t.Fatalf("repeated logout-all: %v", err)
 	}
-	if got := countAuditAction(f, auth.ActionSessionRevokedAll); got != 1 {
+	if got := countAuditAction(t, f, auth.ActionSessionRevokedAll); got != 1 {
 		t.Fatalf("repeated logout-all audit entries = %d, want 1", got)
 	}
 }

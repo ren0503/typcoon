@@ -5,13 +5,32 @@ package ship_test
 import (
 	"context"
 	"errors"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	syncrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sync"
 	"testing"
 	"time"
 
+	appaudit "github.com/ren0503/tycoon/internal/application/audit"
+	"github.com/ren0503/tycoon/internal/application/ship"
+	syncservice "github.com/ren0503/tycoon/internal/application/sync"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
-	syncservice "github.com/ren0503/tycoon/internal/sync"
 )
+
+type failingAuditRepo struct{ ship.Repository }
+
+func (r failingAuditRepo) Begin(ctx context.Context) (ship.Tx, error) {
+	tx, err := r.Repository.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return failingAuditTx{tx}, nil
+}
+
+type failingAuditTx struct{ ship.Tx }
+
+func (failingAuditTx) AppendAudit(context.Context, appaudit.Entry) error {
+	return errors.New("audit unavailable")
+}
 
 func TestStructureImportLifecycleAndIdempotency(t *testing.T) {
 	h := testutil.StartPostgres(t)
@@ -21,8 +40,7 @@ func TestStructureImportLifecycleAndIdempotency(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	audit := &testutil.AuditRecorder{}
-	svc := ship.New(h.Pool, testutil.Logger(t), audit)
+	svc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Imported", Timezone: "UTC", Status: "maintenance"})
 	if err != nil {
@@ -81,11 +99,9 @@ func TestStructureImportLifecycleAndIdempotency(t *testing.T) {
 	assertCount(t, h, `SELECT count(*) FROM areas WHERE ship_id = $1`, created.ID, 2)
 	assertCount(t, h, `SELECT count(*) FROM rooms WHERE ship_id = $1`, created.ID, 2)
 	assertCount(t, h, `SELECT count(*) FROM change_log WHERE ship_id = $1`, created.ID, 7)
-	if actions := audit.Actions(); len(actions) != 1 || actions[0] != "ship.structure_import.confirmed" {
-		t.Fatalf("audit actions = %#v", actions)
-	}
+	assertCount(t, h, `SELECT count(*) FROM audit_log WHERE action = 'ship.structure_import.confirmed'`, 1)
 
-	syncSvc := syncservice.New(h.Pool, svc, nil)
+	syncSvc := syncservice.New(syncrepo.New(h.Pool), svc, nil)
 	changes, err := syncSvc.ChangeLog(ctx, principal, created.ID, 0, 100)
 	if err != nil {
 		t.Fatalf("change log: %v", err)
@@ -168,8 +184,7 @@ func TestStructureImportConfirmationRollsBackAuditFailure(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	audit := &testutil.AuditRecorder{}
-	svc := ship.New(h.Pool, testutil.Logger(t), audit)
+	svc := ship.New(failingAuditRepo{shiprepo.New(h.Pool)}, testutil.Logger(t))
 
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Rollback", Timezone: "UTC"})
 	if err != nil {
@@ -184,7 +199,6 @@ func TestStructureImportConfirmationRollsBackAuditFailure(t *testing.T) {
 		t.Fatalf("upload: %v", err)
 	}
 
-	audit.Err = errors.New("audit unavailable")
 	if _, err := svc.ConfirmStructureImport(ctx, principal, created.ID, preview.Import.ID); err == nil {
 		t.Fatal("expected confirmation failure")
 	} else {
@@ -199,8 +213,8 @@ func TestStructureImportConfirmationRollsBackAuditFailure(t *testing.T) {
 		t.Fatalf("import after rollback = %+v", row)
 	}
 
-	audit.Err = nil
-	if _, err := svc.ConfirmStructureImport(ctx, principal, created.ID, preview.Import.ID); err != nil {
+	retry := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
+	if _, err := retry.ConfirmStructureImport(ctx, principal, created.ID, preview.Import.ID); err != nil {
 		t.Fatalf("retry confirm: %v", err)
 	}
 }
@@ -221,7 +235,7 @@ func TestStructureImportStaleRecoveryAndStatus(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	svc := ship.New(h.Pool, testutil.Logger(t), &testutil.AuditRecorder{})
+	svc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Stale", Timezone: "UTC"})
 	if err != nil {
@@ -272,7 +286,7 @@ func TestStructureImportConcurrentConfirmation(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	svc := ship.New(h.Pool, testutil.Logger(t), &testutil.AuditRecorder{})
+	svc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Concurrent", Timezone: "UTC"})
 	if err != nil {
@@ -315,7 +329,7 @@ func TestStructureImportConfirmationRechecksConflicts(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	svc := ship.New(h.Pool, testutil.Logger(t), &testutil.AuditRecorder{})
+	svc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 
 	created, err := svc.CreateShip(ctx, principal, ship.ShipInput{Name: "Recheck", Timezone: "UTC"})
 	if err != nil {

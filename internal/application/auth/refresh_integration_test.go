@@ -67,12 +67,14 @@ func assertFamilyRevoked(t *testing.T, h *testutil.Harness, familyID uuid.UUID) 
 
 func assertAuditAction(t *testing.T, f exchangeFixture, action string) {
 	t.Helper()
-	for _, got := range f.audit.Actions() {
-		if got == action {
-			return
-		}
+	var count int
+	if err := f.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM audit_log WHERE action = $1`, action).Scan(&count); err != nil {
+		t.Fatalf("query audit action %s: %v", action, err)
 	}
-	t.Fatalf("audit actions %v do not contain %s", f.audit.Actions(), action)
+	if count == 0 {
+		t.Fatalf("audit log does not contain action %s", action)
+	}
 }
 
 func TestRefreshRotatesAndReplayRevokesFamily(t *testing.T) {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ren0503/tycoon/internal/application/auth"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
+	"github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
 
 type fleetGrant struct {
@@ -74,7 +75,7 @@ func exchangeAs(t *testing.T, f exchangeFixture, token, client string) (auth.Iss
 
 func authenticate(t *testing.T, f exchangeFixture, token string) (auth.Principal, error) {
 	t.Helper()
-	provider, err := auth.NewAccessTokenProvider(f.validator, f.store)
+	provider, err := middleware.NewAccessTokenProvider(f.validator, f.store)
 	if err != nil {
 		t.Fatalf("NewAccessTokenProvider: %v", err)
 	}
@@ -216,7 +217,7 @@ func TestFleetGrantSuspensionBlocksFleetButNotGuestRefresh(t *testing.T) {
 			if _, err := exchangeAs(t, f, "token", auth.ClientFleetConsole); !errors.Is(err, auth.ErrClientForbidden) {
 				t.Fatalf("Fleet exchange after %s grant error = %v", state, err)
 			}
-			if _, err := authenticate(t, f, fleetSession.AccessToken); !errors.Is(err, auth.ErrUnauthenticated) {
+			if _, err := authenticate(t, f, fleetSession.AccessToken); !errors.Is(err, middleware.ErrUnauthenticated) {
 				t.Fatalf("Fleet token after %s grant authenticate error = %v", state, err)
 			}
 			if _, err := refreshSession(t, f, fleetSession.RefreshToken); !errors.Is(err, auth.ErrAuthenticationFailed) {

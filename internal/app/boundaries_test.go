@@ -12,20 +12,34 @@ type listedPackage struct {
 	Imports    []string
 }
 
-var modules = map[string]bool{
-	"tenant": true, "ship": true, "voyage": true, "staff": true, "partner": true,
-	"booking": true, "guest": true, "sync": true, "ai": true, "feedback": true,
-	"auth": true, "audit": true,
+const modulePrefix = "github.com/ren0503/tycoon/internal/"
+
+type layer int
+
+const (
+	layerUnknown layer = iota
+	layerApplication
+	layerInfrastructure
+	layerTransport
+	layerPlatform
+	layerApp
+)
+
+var forbiddenApplicationImports = []string{
+	"net/http",
+	"database/sql",
+	"github.com/go-chi/",
+	"github.com/jackc/pgx/",
+	"github.com/jackc/pgerrcode",
+	"github.com/aws/aws-sdk-go-v2",
+	"github.com/redis/go-redis",
+	"firebase.google.com/",
+	"github.com/testcontainers/",
+	"github.com/pressly/goose",
 }
 
-var infra = map[string]bool{
-	"app": true, "apperrors": true, "config": true, "database": true, "httpserver": true,
-	"httpx": true, "pagination": true, "testutil": true, "ownership": true, "awsconfig": true,
-	"health": true, "logging": true,
-}
-
-func TestModuleBoundaries(t *testing.T) {
-	cmd := exec.Command("go", "list", "-json", "./...")
+func TestLayerBoundaries(t *testing.T) {
+	cmd := exec.Command("go", "list", "-json", "github.com/ren0503/tycoon/...")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
@@ -40,47 +54,99 @@ func TestModuleBoundaries(t *testing.T) {
 		graph[pkg.ImportPath] = pkg.Imports
 	}
 
-	const prefix = "github.com/ren0503/tycoon/internal/"
 	for pkg, imports := range graph {
-		owner := owningModule(pkg)
-		if owner == "" {
+		if strings.HasPrefix(pkg, modulePrefix) {
+			if importer := classify(pkg); importer == layerUnknown {
+				t.Errorf("%s is outside the application/infrastructure/transport/platform/app layers", pkg)
+				continue
+			}
+		}
+		importer := classify(pkg)
+		if importer == layerUnknown {
 			continue
 		}
 		for _, imported := range imports {
-			if !strings.HasPrefix(imported, prefix) {
+			if importer == layerApplication {
+				if forbidden := forbiddenApplicationImport(imported); forbidden != "" {
+					t.Errorf("%s (application) imports forbidden package %s", pkg, forbidden)
+					continue
+				}
+			}
+			target := classify(imported)
+			if target == layerUnknown {
 				continue
 			}
-			target := strings.TrimPrefix(imported, prefix)
-			parts := strings.Split(target, "/")
-			if len(parts) != 1 || infra[parts[0]] {
-				continue
-			}
-			if !modules[parts[0]] {
-				t.Errorf("%s imports unowned internal package %s", pkg, imported)
-				continue
-			}
-			if parts[0] != owner {
-				t.Logf("%s imports public surface of module %s", pkg, parts[0])
+			if !allowedImport(importer, pkg, target, imported) {
+				t.Errorf("%s (%s) must not import %s (%s)", pkg, layerName(importer), imported, layerName(target))
 			}
 		}
 	}
 
-	assertAcyclic(t, graph, prefix)
+	assertAcyclic(t, graph)
 }
 
-func owningModule(pkg string) string {
-	const prefix = "github.com/ren0503/tycoon/internal/"
-	if !strings.HasPrefix(pkg, prefix) {
-		return ""
+func classify(pkg string) layer {
+	if pkg == modulePrefix+"app" || strings.HasPrefix(pkg, modulePrefix+"app/") {
+		return layerApp
 	}
-	parts := strings.Split(strings.TrimPrefix(pkg, prefix), "/")
-	if len(parts) == 0 || !modules[parts[0]] {
-		return ""
+	switch {
+	case strings.HasPrefix(pkg, modulePrefix+"application/"):
+		return layerApplication
+	case strings.HasPrefix(pkg, modulePrefix+"infrastructure/"):
+		return layerInfrastructure
+	case strings.HasPrefix(pkg, modulePrefix+"transport/"):
+		return layerTransport
+	case strings.HasPrefix(pkg, modulePrefix+"platform/"):
+		return layerPlatform
 	}
-	return parts[0]
+	return layerUnknown
 }
 
-func assertAcyclic(t *testing.T, graph map[string][]string, prefix string) {
+func allowedImport(importer layer, pkg string, target layer, imported string) bool {
+	switch importer {
+	case layerApplication:
+		return target == layerApplication || target == layerPlatform
+	case layerInfrastructure:
+		return target == layerApplication || target == layerInfrastructure || target == layerPlatform
+	case layerTransport:
+		return target == layerApplication || target == layerTransport || target == layerPlatform
+	case layerPlatform:
+		if strings.HasPrefix(pkg, modulePrefix+"platform/testutil") {
+			return target == layerApplication || target == layerInfrastructure || target == layerPlatform
+		}
+		return target == layerPlatform
+	case layerApp:
+		return true
+	}
+	return true
+}
+
+func forbiddenApplicationImport(imported string) string {
+	for _, prefix := range forbiddenApplicationImports {
+		if imported == prefix || strings.HasPrefix(imported, prefix) {
+			return prefix
+		}
+	}
+	return ""
+}
+
+func layerName(l layer) string {
+	switch l {
+	case layerApplication:
+		return "application"
+	case layerInfrastructure:
+		return "infrastructure"
+	case layerTransport:
+		return "transport"
+	case layerPlatform:
+		return "platform"
+	case layerApp:
+		return "app"
+	}
+	return "unknown"
+}
+
+func assertAcyclic(t *testing.T, graph map[string][]string) {
 	t.Helper()
 	state := map[string]int{}
 	var visit func(string)
@@ -93,14 +159,14 @@ func assertAcyclic(t *testing.T, graph map[string][]string, prefix string) {
 		}
 		state[pkg] = 1
 		for _, dep := range graph[pkg] {
-			if strings.HasPrefix(dep, prefix) {
+			if strings.HasPrefix(dep, modulePrefix) {
 				visit(dep)
 			}
 		}
 		state[pkg] = 2
 	}
 	for pkg := range graph {
-		if strings.HasPrefix(pkg, prefix) {
+		if strings.HasPrefix(pkg, modulePrefix) {
 			visit(pkg)
 		}
 	}

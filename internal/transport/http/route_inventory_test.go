@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ren0503/tycoon/internal/app"
 	"github.com/ren0503/tycoon/internal/transport/http/httpx"
 )
 
@@ -45,14 +44,4 @@ func TestRouteInventoryExcludesInternalTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk routes: %v", err)
 	}
-}
-
-func TestBusinessRouteTreeBuilds(t *testing.T) {
-	modules := app.BuildModules(nil, slog.New(slog.DiscardHandler), nil)
-	cfg := RouterConfig{
-		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-		DB:        routePinger{},
-		APIRoutes: modules.RegisterRoutes,
-	}
-	_ = NewRouter(cfg)
 }

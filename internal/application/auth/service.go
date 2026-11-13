@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 
-	"github.com/ren0503/tycoon/internal/audit"
+	"github.com/ren0503/tycoon/internal/application/audit"
 	"github.com/ren0503/tycoon/internal/platform/errors"
 )
 

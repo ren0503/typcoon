@@ -37,6 +37,12 @@ type AccountLookup interface {
 	ResolveActiveAdmin(ctx context.Context, accountID uuid.UUID) (AdminAuthority, error)
 }
 
+// AccountService answers account-existence checks for other modules without
+// exposing account persistence details.
+type AccountService interface {
+	Exists(ctx context.Context, accountID uuid.UUID) (bool, error)
+}
+
 // Store owns transactional persistence for authentication state.
 type Store interface {
 	AppendAudit(context.Context, audit.Entry) error

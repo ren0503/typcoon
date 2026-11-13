@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpserver
+package app
 
 import (
 	"bytes"
@@ -16,10 +16,10 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/app"
-	"github.com/ren0503/tycoon/internal/application/auth"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
+	httpserver "github.com/ren0503/tycoon/internal/transport/http"
+	"github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
 
 type httpResult struct {
@@ -59,12 +59,12 @@ func TestAuthenticationTenantIsolationAndSensitiveFields(t *testing.T) {
 	tokenA := "admin:sec-a:" + tenantA.String()
 	tokenB := "admin:sec-b:" + tenantB.String()
 	shipToken := "admin:sec-ship:" + tenantA.String() + ":" + shipA.String()
-	provider, err := auth.NewDevHeaderProvider([]string{tokenA, tokenB, shipToken})
+	provider, err := middleware.NewDevHeaderProvider([]string{tokenA, tokenB, shipToken})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
-	router := NewRouter(RouterConfig{
+	modules := BuildModules(integrationModuleDeps(h, slog.New(slog.DiscardHandler)))
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        contractPinger{},
 		Provider:  provider,

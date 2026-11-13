@@ -6,8 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/ren0503/tycoon/internal/application/audit"
 	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/audit"
+	"github.com/ren0503/tycoon/internal/infrastructure/security/local"
 )
 
 // FakeVerifier returns configured Firebase identities keyed by ID token.
@@ -78,17 +81,22 @@ func (c *FakeClock) Set(now time.Time) {
 }
 
 // NewTestKeySet returns a random local RSA signer and static key set.
-func NewTestKeySet(t *testing.T, kid string) (*auth.LocalSigner, *auth.StaticKeySet) {
+func NewTestKeySet(t *testing.T, kid string) (*local.LocalSigner, *local.StaticKeySet) {
 	t.Helper()
-	signer, err := auth.NewRandomLocalSigner(kid)
+	signer, err := local.NewRandomLocalSigner(kid)
 	if err != nil {
 		t.Fatalf("NewRandomLocalSigner: %v", err)
 	}
-	keys, err := auth.NewStaticKeySet(kid, signer)
+	keys, err := local.NewStaticKeySet(kid, signer)
 	if err != nil {
 		t.Fatalf("NewStaticKeySet: %v", err)
 	}
 	return signer, keys
+}
+
+// AuditExecer is the subset of a transaction the recorder accepts.
+type AuditExecer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 }
 
 // RateLimitCall records one fake limiter invocation.
@@ -142,7 +150,7 @@ type AuditRecorder struct {
 }
 
 // AppendTx records the entry.
-func (a *AuditRecorder) AppendTx(_ context.Context, _ audit.Execer, entry audit.Entry) error {
+func (a *AuditRecorder) AppendTx(_ context.Context, _ AuditExecer, entry audit.Entry) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.Err != nil {
@@ -174,5 +182,4 @@ var (
 	_ auth.Verifier    = (*FakeVerifier)(nil)
 	_ auth.Clock       = (*FakeClock)(nil)
 	_ auth.RateLimiter = (*FakeRateLimiter)(nil)
-	_ audit.Appender   = (*AuditRecorder)(nil)
 )

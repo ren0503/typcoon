@@ -7,7 +7,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
-	"github.com/ren0503/tycoon/internal/application/auth"
 	"github.com/ren0503/tycoon/internal/transport/http/handlers/health"
 	custommiddleware "github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
@@ -17,7 +16,7 @@ type RouterConfig struct {
 	Logger             *slog.Logger
 	DB                 health.Pinger
 	CORSAllowedOrigins []string
-	Provider           auth.Provider
+	Provider           custommiddleware.Provider
 	PublicAPIRoutes    func(r chi.Router)
 	APIRoutes          func(r chi.Router)
 }
@@ -40,7 +39,7 @@ func NewRouter(cfg RouterConfig) http.Handler {
 			if cfg.APIRoutes != nil {
 				provider := cfg.Provider
 				if provider == nil {
-					provider = auth.DenyAllProvider{}
+					provider = custommiddleware.DenyAllProvider{}
 				}
 				r.Group(func(r chi.Router) {
 					r.Use(custommiddleware.Authenticate(provider, cfg.Logger))

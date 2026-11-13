@@ -6,8 +6,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-
-	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
 )
 
 func TestExchangeClassifiesVerifiedEmailCollisionWithoutLinking(t *testing.T) {
@@ -68,7 +66,7 @@ func TestLinkIdentityTreatsSameAccountRaceAsIdempotent(t *testing.T) {
 	existingID := uuid.New()
 	store := &fakeServiceStore{
 		linkErr: ErrIdentityConflict,
-		identity: &sqlc.AccountIdentity{
+		identity: &AccountIdentity{
 			ID: existingID, AccountID: accountID, Provider: firebaseProvider,
 			ProviderSub: "raced-uid",
 		},
@@ -91,7 +89,7 @@ func TestLinkIdentityRejectsDuplicateOwnershipAndInactiveAccount(t *testing.T) {
 	otherAccountID := uuid.New()
 	store := &fakeServiceStore{
 		linkErr: ErrIdentityConflict,
-		identity: &sqlc.AccountIdentity{
+		identity: &AccountIdentity{
 			ID: uuid.New(), AccountID: otherAccountID, Provider: firebaseProvider,
 			ProviderSub: "owned-elsewhere",
 		},

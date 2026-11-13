@@ -4,62 +4,81 @@ import (
 	"log/slog"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/ren0503/tycoon/internal/ai"
-	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/booking"
-	"github.com/ren0503/tycoon/internal/feedback"
-	"github.com/ren0503/tycoon/internal/guest"
-	"github.com/ren0503/tycoon/internal/partner"
-	"github.com/ren0503/tycoon/internal/ship"
-	"github.com/ren0503/tycoon/internal/staff"
-	syncmodule "github.com/ren0503/tycoon/internal/sync"
-	"github.com/ren0503/tycoon/internal/tenant"
-	"github.com/ren0503/tycoon/internal/voyage"
+	appai "github.com/ren0503/tycoon/internal/application/ai"
+	appauth "github.com/ren0503/tycoon/internal/application/auth"
+	appbooking "github.com/ren0503/tycoon/internal/application/booking"
+	appfeedback "github.com/ren0503/tycoon/internal/application/feedback"
+	appguest "github.com/ren0503/tycoon/internal/application/guest"
+	apppartner "github.com/ren0503/tycoon/internal/application/partner"
+	appship "github.com/ren0503/tycoon/internal/application/ship"
+	appstaff "github.com/ren0503/tycoon/internal/application/staff"
+	appsync "github.com/ren0503/tycoon/internal/application/sync"
+	apptenant "github.com/ren0503/tycoon/internal/application/tenant"
+	appvoyage "github.com/ren0503/tycoon/internal/application/voyage"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/auth"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/booking"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/guest"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/partner"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/ship"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/staff"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/tenant"
+	"github.com/ren0503/tycoon/internal/transport/http/handlers/voyage"
 )
 
-type Modules struct {
-	AuthSvc     auth.Service
-	TenantSvc   tenant.TenantService
-	ShipSvc     ship.Service
-	VoyageSvc   voyage.Service
-	StaffSvc    staff.Service
-	PartnerSvc  partner.Service
-	BookingSvc  booking.Service
-	GuestSvc    guest.Service
-	AccountsSvc auth.AccountService
-	AIParamsSvc ai.AIParamService
-	FeedbackSvc feedback.FeedbackService
-	SyncSvc     syncmodule.Service
+// ModuleDeps supplies application ports to the composition root.
+type ModuleDeps struct {
+	Logger *slog.Logger
+
+	Auth         appauth.Service
+	Accounts     appauth.AccountService
+	TenantRepo   apptenant.Repository
+	ShipRepo     appship.Repository
+	VoyageRepo   appvoyage.Repository
+	StaffRepo    appstaff.Repository
+	PartnerRepo  apppartner.Repository
+	BookingRepo  appbooking.Repository
+	GuestRepo    appguest.Repository
+	AIRepo       appai.Repository
+	FeedbackRepo appfeedback.Repository
+	SyncRepo     appsync.Repository
+
+	DocumentCipher appguest.DocumentCipher
 }
 
-func BuildModules(pool *pgxpool.Pool, logger *slog.Logger, authService auth.Service) Modules {
-	auditStore := audit.NewStore(pool, logger)
-	shipSvc := ship.New(pool, logger, auditStore)
-	voyageSvc := voyage.New(pool, logger, shipSvc)
-	staffSvc := staff.New(pool, logger, shipSvc, auditStore)
-	partnerSvc := partner.New(pool, shipSvc)
-	accountSvc := auth.NewAccountService(pool)
-	bookingSvc := booking.New(pool, shipSvc, voyageSvc, partnerSvc, accountSvc, auditStore)
-	documentCipher, err := guest.NewDevDocumentCipher()
-	if err != nil {
-		panic("guest document cipher: " + err.Error())
-	}
+type Modules struct {
+	AuthSvc     appauth.Service
+	TenantSvc   apptenant.TenantService
+	ShipSvc     appship.Service
+	VoyageSvc   appvoyage.Service
+	StaffSvc    appstaff.Service
+	PartnerSvc  apppartner.Service
+	BookingSvc  appbooking.Service
+	GuestSvc    appguest.Service
+	AIParamsSvc appai.AIParamService
+	FeedbackSvc appfeedback.FeedbackService
+	SyncSvc     appsync.Service
+}
+
+// BuildModules constructs application services from injected ports only.
+func BuildModules(deps ModuleDeps) Modules {
+	shipSvc := appship.New(deps.ShipRepo, deps.Logger)
+	voyageSvc := appvoyage.New(deps.VoyageRepo, deps.Logger, shipSvc)
+	staffSvc := appstaff.New(deps.StaffRepo, deps.Logger, shipSvc)
+	partnerSvc := apppartner.New(deps.PartnerRepo, shipSvc)
+	bookingSvc := appbooking.New(deps.BookingRepo, shipSvc, voyageSvc, partnerSvc, deps.Accounts)
 	return Modules{
-		AuthSvc:     authService,
-		TenantSvc:   tenant.New(pool),
+		AuthSvc:     deps.Auth,
+		TenantSvc:   apptenant.New(deps.TenantRepo),
 		ShipSvc:     shipSvc,
 		VoyageSvc:   voyageSvc,
 		StaffSvc:    staffSvc,
 		PartnerSvc:  partnerSvc,
 		BookingSvc:  bookingSvc,
-		GuestSvc:    guest.New(pool, bookingSvc, auditStore, documentCipher),
-		AccountsSvc: accountSvc,
-		AIParamsSvc: ai.New(pool),
-		FeedbackSvc: feedback.New(pool, shipSvc, voyageSvc),
-		SyncSvc:     syncmodule.New(pool, shipSvc, voyageSvc),
+		GuestSvc:    appguest.New(deps.GuestRepo, bookingSvc, deps.DocumentCipher),
+		AIParamsSvc: appai.New(deps.AIRepo),
+		FeedbackSvc: appfeedback.New(deps.FeedbackRepo, shipSvc, voyageSvc),
+		SyncSvc:     appsync.New(deps.SyncRepo, shipSvc, voyageSvc),
 	}
 }
 

@@ -1,6 +1,6 @@
 //go:build integration
 
-package httpserver
+package app
 
 import (
 	"bytes"
@@ -17,14 +17,25 @@ import (
 	"github.com/getkin/kin-openapi/routers/gorillamux"
 	"github.com/go-chi/chi/v5"
 
-	"github.com/ren0503/tycoon/internal/app"
-	"github.com/ren0503/tycoon/internal/application/auth"
+	airepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ai"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
+	bookingrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/booking"
+	feedbackrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/feedback"
+	guestrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/guest"
+	partnerrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/partner"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	staffrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/staff"
+	syncrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sync"
+	tenantrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/tenant"
+	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
+	httpserver "github.com/ren0503/tycoon/internal/transport/http"
+	"github.com/ren0503/tycoon/internal/transport/http/middleware"
 )
 
 func TestDeclaredOperationsAreMounted(t *testing.T) {
 	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile("../../../openapi/openapi.yaml")
+	doc, err := loader.LoadFromFile("../../openapi/openapi.yaml")
 	if err != nil {
 		t.Fatalf("load openapi: %v", err)
 	}
@@ -32,8 +43,8 @@ func TestDeclaredOperationsAreMounted(t *testing.T) {
 		t.Fatalf("openapi is invalid: %v", err)
 	}
 
-	modules := app.BuildModules(nil, slog.New(slog.DiscardHandler), nil)
-	router := NewRouter(RouterConfig{
+	modules := BuildModules(ModuleDeps{Logger: slog.New(slog.DiscardHandler)})
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:              contractPinger{},
 		PublicAPIRoutes: modules.RegisterPublicRoutes,
@@ -76,7 +87,7 @@ func normalizeRoute(route string) string {
 
 func TestExercisedRequestsAndResponsesMatchSpec(t *testing.T) {
 	loader := openapi3.NewLoader()
-	doc, err := loader.LoadFromFile("../../../openapi/openapi.yaml")
+	doc, err := loader.LoadFromFile("../../openapi/openapi.yaml")
 	if err != nil {
 		t.Fatalf("load openapi: %v", err)
 	}
@@ -88,12 +99,26 @@ func TestExercisedRequestsAndResponsesMatchSpec(t *testing.T) {
 	tenantID := h.SeedTenant(t)
 	shipID := h.SeedShip(t, tenantID)
 	token := "admin:contract:" + tenantID.String()
-	provider, err := auth.NewDevHeaderProvider([]string{token})
+	provider, err := middleware.NewDevHeaderProvider([]string{token})
 	if err != nil {
 		t.Fatalf("provider: %v", err)
 	}
-	modules := app.BuildModules(h.Pool, slog.New(slog.DiscardHandler), nil)
-	router := NewRouter(RouterConfig{
+	logger := slog.New(slog.DiscardHandler)
+	modules := BuildModules(ModuleDeps{
+		Logger:       logger,
+		Accounts:     authrepo.NewAccountService(h.Pool),
+		TenantRepo:   tenantrepo.New(h.Pool),
+		ShipRepo:     shiprepo.New(h.Pool),
+		VoyageRepo:   voyagerepo.New(h.Pool),
+		StaffRepo:    staffrepo.New(h.Pool),
+		PartnerRepo:  partnerrepo.New(h.Pool),
+		BookingRepo:  bookingrepo.New(h.Pool),
+		GuestRepo:    guestrepo.New(h.Pool),
+		AIRepo:       airepo.New(h.Pool),
+		FeedbackRepo: feedbackrepo.New(h.Pool),
+		SyncRepo:     syncrepo.New(h.Pool),
+	})
+	router := httpserver.NewRouter(httpserver.RouterConfig{
 		Logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:        contractPinger{},
 		Provider:  provider,
@@ -109,7 +134,7 @@ func TestExercisedRequestsAndResponsesMatchSpec(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.Header.Set("X-Dev-Principal", token)
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+		specReq.URL.Path = req.URL.Path
 		route, pathParams, err := router2.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("%s not found in spec: %v", path, err)

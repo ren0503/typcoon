@@ -120,7 +120,7 @@ func TestDuplicateIdentityLinkConflictDoesNotRepointOwnership(t *testing.T) {
 	if countIdentities(t, h) != 2 {
 		t.Fatalf("identity count = %d, want 2", countIdentities(t, h))
 	}
-	if got := countAuditAction(f, auth.ActionIdentityLinkDenied); got != 1 {
+	if got := countAuditAction(t, f, auth.ActionIdentityLinkDenied); got != 1 {
 		t.Fatalf("link denied audit entries = %d, want 1", got)
 	}
 }
@@ -149,7 +149,7 @@ func TestUnlinkEnforcesOwnershipAndLastCredential(t *testing.T) {
 	if countIdentities(t, h) != 2 {
 		t.Fatal("not-owned unlink deleted a row")
 	}
-	if got := countAuditAction(f, auth.ActionIdentityUnlinkDenied); got != 2 {
+	if got := countAuditAction(t, f, auth.ActionIdentityUnlinkDenied); got != 2 {
 		t.Fatalf("unlink denied audit entries = %d, want 2", got)
 	}
 
@@ -223,10 +223,10 @@ func TestConcurrentLinkRacesAllowOneOwner(t *testing.T) {
 	if got := identityAccountForUID(t, h, "identity-race"); got != winner {
 		t.Fatalf("race identity owner = %s, want winner %s", got, winner)
 	}
-	if got := countAuditAction(f, auth.ActionIdentityLinked); got != 1 {
+	if got := countAuditAction(t, f, auth.ActionIdentityLinked); got != 1 {
 		t.Fatalf("link success audit entries = %d, want 1", got)
 	}
-	if got := countAuditAction(f, auth.ActionIdentityLinkDenied); got != 1 {
+	if got := countAuditAction(t, f, auth.ActionIdentityLinkDenied); got != 1 {
 		t.Fatalf("link denied audit entries = %d, want 1", got)
 	}
 }

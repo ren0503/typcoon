@@ -12,33 +12,33 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
+	"github.com/ren0503/tycoon/internal/application/audit"
 )
 
 type fakeServiceStore struct {
-	identity *sqlc.AccountIdentity
-	account  sqlc.Account
+	identity *AccountIdentity
+	account  Account
 
 	provisionErr error
 	sessionErr   error
 
 	provisionCalls      int
 	sessionCalls        int
-	provisionedAccount  sqlc.CreateAccountParams
-	provisionedIdentity sqlc.LinkAccountIdentityParams
-	sessions            []sqlc.CreateRefreshTokenParams
+	provisionedAccount  CreateAccountParams
+	provisionedIdentity LinkAccountIdentityParams
+	sessions            []CreateRefreshTokenParams
 	provisionAudit      []audit.Entry
 	sessionAudit        []audit.Entry
+	directAudit         []audit.Entry
 
-	refreshToken      *sqlc.RefreshToken
+	refreshToken      *RefreshToken
 	refreshLookupErr  error
 	rotateErr         error
-	rotatedAccount    sqlc.Account
-	rotatedToken      sqlc.RefreshToken
+	rotatedAccount    Account
+	rotatedToken      RefreshToken
 	refreshLookupHash []byte
 	rotatedHash       []byte
-	replacement       sqlc.CreateRefreshTokenParams
+	replacement       CreateRefreshTokenParams
 	rotateCalls       int
 	rotatedAudit      []audit.Entry
 	reuseAudit        []audit.Entry
@@ -56,11 +56,11 @@ type fakeServiceStore struct {
 	logoutAllAccount uuid.UUID
 	logoutAllEntry   audit.Entry
 
-	linkIdentity  sqlc.AccountIdentity
+	linkIdentity  AccountIdentity
 	linkErr       error
 	linkCalls     int
 	linkAccount   uuid.UUID
-	linkParams    sqlc.LinkAccountIdentityParams
+	linkParams    LinkAccountIdentityParams
 	linkEntry     audit.Entry
 	unlinkErr     error
 	unlinkCalls   int
@@ -69,34 +69,39 @@ type fakeServiceStore struct {
 	unlinkEntry   audit.Entry
 }
 
-func (f *fakeServiceStore) GetIdentityByProviderSubject(context.Context, string, string) (sqlc.AccountIdentity, error) {
+func (f *fakeServiceStore) GetIdentityByProviderSubject(context.Context, string, string) (AccountIdentity, error) {
 	if f.identity == nil {
-		return sqlc.AccountIdentity{}, ErrIdentityNotFound
+		return AccountIdentity{}, ErrIdentityNotFound
 	}
 	return *f.identity, nil
 }
 
-func (f *fakeServiceStore) GetAccount(context.Context, uuid.UUID) (sqlc.Account, error) {
+func (f *fakeServiceStore) GetAccount(context.Context, uuid.UUID) (Account, error) {
 	if f.account.ID == uuid.Nil {
-		return sqlc.Account{}, ErrIdentityNotFound
+		return Account{}, ErrIdentityNotFound
 	}
 	return f.account, nil
 }
 
-func (f *fakeServiceStore) ProvisionGuest(_ context.Context, account sqlc.CreateAccountParams, identity sqlc.LinkAccountIdentityParams, entry audit.Entry, _ audit.Appender) (sqlc.Account, sqlc.AccountIdentity, error) {
+func (f *fakeServiceStore) AppendAudit(_ context.Context, entry audit.Entry) error {
+	f.directAudit = append(f.directAudit, entry)
+	return nil
+}
+
+func (f *fakeServiceStore) ProvisionGuest(_ context.Context, account CreateAccountParams, identity LinkAccountIdentityParams, entry audit.Entry) (Account, AccountIdentity, error) {
 	f.provisionCalls++
 	f.provisionedAccount = account
 	f.provisionedIdentity = identity
 	f.provisionAudit = append(f.provisionAudit, entry)
 	if f.provisionErr != nil {
-		return sqlc.Account{}, sqlc.AccountIdentity{}, f.provisionErr
+		return Account{}, AccountIdentity{}, f.provisionErr
 	}
-	created := sqlc.Account{
+	created := Account{
 		ID: account.ID, Email: account.Email, DisplayName: account.DisplayName,
 		Phone: account.Phone, Locale: account.Locale, Status: account.Status,
 	}
 	identity.AccountID = created.ID
-	linked := sqlc.AccountIdentity{
+	linked := AccountIdentity{
 		ID: identity.ID, AccountID: created.ID, Provider: identity.Provider,
 		ProviderSub: identity.ProviderSub, Email: identity.Email,
 	}
@@ -105,7 +110,7 @@ func (f *fakeServiceStore) ProvisionGuest(_ context.Context, account sqlc.Create
 	return created, linked, nil
 }
 
-func (f *fakeServiceStore) CreateSession(_ context.Context, token sqlc.CreateRefreshTokenParams, entry audit.Entry, _ audit.Appender) error {
+func (f *fakeServiceStore) CreateSession(_ context.Context, token CreateRefreshTokenParams, entry audit.Entry) error {
 	f.sessionCalls++
 	f.sessions = append(f.sessions, token)
 	f.sessionAudit = append(f.sessionAudit, entry)
@@ -120,30 +125,30 @@ func (f *fakeServiceStore) ResolveActiveAdmin(context.Context, uuid.UUID) (Admin
 	return f.adminAuthority, nil
 }
 
-func (f *fakeServiceStore) RevokeRefreshFamilyByHash(_ context.Context, hash []byte, entry audit.Entry, _ audit.Appender) error {
+func (f *fakeServiceStore) RevokeRefreshFamilyByHash(_ context.Context, hash []byte, entry audit.Entry) error {
 	f.logoutCalls++
 	f.logoutHash = append([]byte(nil), hash...)
 	f.logoutEntry = entry
 	return f.logoutErr
 }
 
-func (f *fakeServiceStore) RevokeAccountSessions(_ context.Context, accountID uuid.UUID, entry audit.Entry, _ audit.Appender) error {
+func (f *fakeServiceStore) RevokeAccountSessions(_ context.Context, accountID uuid.UUID, entry audit.Entry) error {
 	f.logoutAllCalls++
 	f.logoutAllAccount = accountID
 	f.logoutAllEntry = entry
 	return f.logoutAllErr
 }
 
-func (f *fakeServiceStore) LinkIdentityForAccount(_ context.Context, accountID uuid.UUID, identity sqlc.LinkAccountIdentityParams, entry audit.Entry, _ audit.Appender) (sqlc.AccountIdentity, error) {
+func (f *fakeServiceStore) LinkIdentityForAccount(_ context.Context, accountID uuid.UUID, identity LinkAccountIdentityParams, entry audit.Entry) (AccountIdentity, error) {
 	f.linkCalls++
 	f.linkAccount = accountID
 	f.linkParams = identity
 	f.linkEntry = entry
 	if f.linkErr != nil {
-		return sqlc.AccountIdentity{}, f.linkErr
+		return AccountIdentity{}, f.linkErr
 	}
 	if f.linkIdentity.ID == uuid.Nil {
-		f.linkIdentity = sqlc.AccountIdentity{
+		f.linkIdentity = AccountIdentity{
 			ID: identity.ID, AccountID: accountID, Provider: identity.Provider,
 			ProviderSub: identity.ProviderSub, Email: identity.Email,
 		}
@@ -151,7 +156,7 @@ func (f *fakeServiceStore) LinkIdentityForAccount(_ context.Context, accountID u
 	return f.linkIdentity, nil
 }
 
-func (f *fakeServiceStore) UnlinkIdentityForAccount(_ context.Context, accountID, identityID uuid.UUID, entry audit.Entry, _ audit.Appender) error {
+func (f *fakeServiceStore) UnlinkIdentityForAccount(_ context.Context, accountID, identityID uuid.UUID, entry audit.Entry) error {
 	f.unlinkCalls++
 	f.unlinkAccount = accountID
 	f.unlinkedID = identityID
@@ -159,13 +164,13 @@ func (f *fakeServiceStore) UnlinkIdentityForAccount(_ context.Context, accountID
 	return f.unlinkErr
 }
 
-func (f *fakeServiceStore) GetRefreshTokenByHash(_ context.Context, hash []byte) (sqlc.RefreshToken, error) {
+func (f *fakeServiceStore) GetRefreshTokenByHash(_ context.Context, hash []byte) (RefreshToken, error) {
 	f.refreshLookupHash = append([]byte(nil), hash...)
 	if f.refreshLookupErr != nil {
-		return sqlc.RefreshToken{}, f.refreshLookupErr
+		return RefreshToken{}, f.refreshLookupErr
 	}
 	if f.refreshToken == nil {
-		return sqlc.RefreshToken{}, ErrRefreshTokenNotFound
+		return RefreshToken{}, ErrRefreshTokenNotFound
 	}
 	return *f.refreshToken, nil
 }
@@ -173,19 +178,18 @@ func (f *fakeServiceStore) GetRefreshTokenByHash(_ context.Context, hash []byte)
 func (f *fakeServiceStore) RotateRefreshToken(
 	_ context.Context,
 	hash []byte,
-	replacement sqlc.CreateRefreshTokenParams,
+	replacement CreateRefreshTokenParams,
 	refreshedEntry audit.Entry,
 	reuseEntry audit.Entry,
 	_ time.Time,
-	_ audit.Appender,
-) (sqlc.Account, sqlc.RefreshToken, error) {
+) (Account, RefreshToken, error) {
 	f.rotateCalls++
 	f.rotatedHash = append([]byte(nil), hash...)
 	f.replacement = replacement
 	f.rotatedAudit = append(f.rotatedAudit, refreshedEntry)
 	f.reuseAudit = append(f.reuseAudit, reuseEntry)
 	if f.rotateErr != nil {
-		return sqlc.Account{}, sqlc.RefreshToken{}, f.rotateErr
+		return Account{}, RefreshToken{}, f.rotateErr
 	}
 	return f.rotatedAccount, f.rotatedToken, nil
 }
@@ -243,10 +247,6 @@ func (l *unitLimiter) Allow(_ context.Context, key string, limit int, window tim
 
 func (l *unitLimiter) Close() error { return nil }
 
-type unitAudit struct{}
-
-func (unitAudit) AppendTx(context.Context, audit.Execer, audit.Entry) error { return nil }
-
 type authFixture struct {
 	service   Service
 	store     *fakeServiceStore
@@ -259,11 +259,8 @@ type authFixture struct {
 func newAuthFixture(t *testing.T, verifier *unitVerifier, store *fakeServiceStore) authFixture {
 	t.Helper()
 	clock := &unitClock{now: time.Date(2026, time.November, 5, 12, 0, 0, 0, time.UTC)}
-	signer, err := NewRandomLocalSigner("test-kid")
-	if err != nil {
-		t.Fatalf("NewRandomLocalSigner: %v", err)
-	}
-	keys, err := NewStaticKeySet("test-kid", signer)
+	signer := newTestSigner(t, "test-kid")
+	keys, err := newTestKeySet(t, "test-kid", signer)
 	if err != nil {
 		t.Fatalf("NewStaticKeySet: %v", err)
 	}
@@ -276,7 +273,6 @@ func newAuthFixture(t *testing.T, verifier *unitVerifier, store *fakeServiceStor
 		Keys:       keys,
 		Limiter:    limiter,
 		Clock:      clock,
-		Audit:      unitAudit{},
 		Issuer:     "test-issuer",
 		Audience:   "test-audience",
 		AccessTTL:  15 * time.Minute,
@@ -431,8 +427,8 @@ func TestExchangeReturnsGenericAuthenticationErrors(t *testing.T) {
 	}
 
 	inactive := &fakeServiceStore{
-		identity: &sqlc.AccountIdentity{ID: uuid.New(), AccountID: uuid.New(), Provider: "firebase", ProviderSub: "uid-inactive"},
-		account:  sqlc.Account{ID: uuid.New(), Status: "suspended"},
+		identity: &AccountIdentity{ID: uuid.New(), AccountID: uuid.New(), Provider: "firebase", ProviderSub: "uid-inactive"},
+		account:  Account{ID: uuid.New(), Status: "suspended"},
 	}
 	inactive.account.ID = inactive.identity.AccountID
 	f := newAuthFixture(t, &unitVerifier{

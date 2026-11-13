@@ -4,17 +4,21 @@ package booking_test
 
 import (
 	"context"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
+	bookingrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/booking"
+	partnerrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/partner"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/booking"
-	"github.com/ren0503/tycoon/internal/partner"
+	"github.com/ren0503/tycoon/internal/application/booking"
+	"github.com/ren0503/tycoon/internal/application/partner"
+	"github.com/ren0503/tycoon/internal/application/ship"
+	"github.com/ren0503/tycoon/internal/application/voyage"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
-	"github.com/ren0503/tycoon/internal/voyage"
 )
 
 func TestBookingIdempotencyOverlapAndImmutability(t *testing.T) {
@@ -24,12 +28,12 @@ func TestBookingIdempotencyOverlapAndImmutability(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
+	shipSvc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Booking Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)
 	}
-	voyageSvc := voyage.New(h.Pool, testutil.Logger(t), shipSvc)
+	voyageSvc := voyage.New(voyagerepo.New(h.Pool), testutil.Logger(t), shipSvc)
 	departure := time.Now().UTC().Add(48 * time.Hour).Truncate(time.Second)
 	v, err := voyageSvc.CreateVoyage(ctx, principal, voyage.VoyageInput{
 		ShipID: shipRow.ID, Code: "BOOK-1", DepartureAt: departure, ArrivalAt: departure.Add(24 * time.Hour),
@@ -47,16 +51,16 @@ func TestBookingIdempotencyOverlapAndImmutability(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create room: %v", err)
 	}
-	partnerSvc := partner.New(h.Pool, shipSvc)
+	partnerSvc := partner.New(partnerrepo.New(h.Pool), shipSvc)
 	p, err := partnerSvc.CreatePartner(ctx, principal, partner.PartnerInput{Name: "Partner", BusinessType: "spa"})
 	if err != nil {
 		t.Fatalf("create partner: %v", err)
 	}
 	partnerServiceID := h.SeedPartnerService(t, shipRow.ID, p.ID)
 	accountID := h.SeedAccount(t)
-	accountSvc := auth.NewAccountService(h.Pool)
+	accountSvc := authrepo.NewAccountService(h.Pool)
 
-	svc := booking.New(h.Pool, shipSvc, voyageSvc, partnerSvc, accountSvc, nil)
+	svc := booking.New(bookingrepo.New(h.Pool), shipSvc, voyageSvc, partnerSvc, accountSvc)
 
 	input := booking.BookingInput{
 		ShipID: shipRow.ID, VoyageID: v.ID, AccountID: &accountID, RoomID: &room.ID,

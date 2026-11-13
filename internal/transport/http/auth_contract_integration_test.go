@@ -22,7 +22,12 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ren0503/tycoon/internal/application/auth"
+	authhandlers "github.com/ren0503/tycoon/internal/transport/http/handlers/auth"
 )
+
+type contractPinger struct{}
+
+func (contractPinger) Ping(context.Context) error { return nil }
 
 type exchangeContractService struct {
 	auth.Service
@@ -141,7 +146,7 @@ func TestFirebaseExchangeContract(t *testing.T) {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:     contractPinger{},
 		PublicAPIRoutes: func(r chi.Router) {
-			auth.RegisterPublicRoutes(r, service)
+			authhandlers.RegisterPublicRoutes(r, service)
 		},
 	})
 
@@ -152,7 +157,7 @@ func TestFirebaseExchangeContract(t *testing.T) {
 			req.Header.Set("Content-Type", contentType)
 		}
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+		specReq.URL.Path = req.URL.Path
 		route, pathParams, err := router2.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("exchange route not found in spec: %v", err)
@@ -241,7 +246,7 @@ func TestFirebaseExchangeErrorMapping(t *testing.T) {
 				Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 				DB:     contractPinger{},
 				PublicAPIRoutes: func(r chi.Router) {
-					auth.RegisterPublicRoutes(r, service)
+					authhandlers.RegisterPublicRoutes(r, service)
 				},
 			})
 			req := httptest.NewRequest(http.MethodPost, "/api/auth/firebase/exchange",
@@ -307,7 +312,7 @@ func TestLogoutContract(t *testing.T) {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:     contractPinger{},
 		PublicAPIRoutes: func(r chi.Router) {
-			auth.RegisterPublicRoutes(r, service)
+			authhandlers.RegisterPublicRoutes(r, service)
 		},
 	})
 	logoutRequest := func(body string) (*httptest.ResponseRecorder, *openapi3filter.RequestValidationInput) {
@@ -315,7 +320,7 @@ func TestLogoutContract(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/auth/logout", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+		specReq.URL.Path = req.URL.Path
 		route, pathParams, err := specRouter.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("logout route not found in spec: %v", err)
@@ -361,12 +366,12 @@ func TestLogoutContract(t *testing.T) {
 		DB:       contractPinger{},
 		Provider: fixedContractProvider{principal: auth.Principal{ActorType: auth.ActorAccount, ActorID: accountID.String(), AccountID: accountID}},
 		APIRoutes: func(r chi.Router) {
-			auth.RegisterProtectedRoutes(r, service)
+			authhandlers.RegisterProtectedRoutes(r, service)
 		},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/api/auth/logout-all", nil)
 	specReq := req.Clone(req.Context())
-	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+	specReq.URL.Path = req.URL.Path
 	route, pathParams, err := specRouter.FindRoute(specReq)
 	if err != nil {
 		t.Fatalf("logout-all route not found in spec: %v", err)
@@ -405,7 +410,7 @@ func TestIdentityLinkContract(t *testing.T) {
 		DB:       contractPinger{},
 		Provider: fixedContractProvider{principal: auth.Principal{ActorType: auth.ActorAccount, ActorID: accountID.String(), AccountID: accountID}},
 		APIRoutes: func(r chi.Router) {
-			auth.RegisterProtectedRoutes(r, service)
+			authhandlers.RegisterProtectedRoutes(r, service)
 		},
 	})
 	validateResponse := func(rec *httptest.ResponseRecorder, requestInput *openapi3filter.RequestValidationInput) {
@@ -422,7 +427,7 @@ func TestIdentityLinkContract(t *testing.T) {
 	requestInputFor := func(req *http.Request) *openapi3filter.RequestValidationInput {
 		t.Helper()
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+		specReq.URL.Path = req.URL.Path
 		route, pathParams, err := specRouter.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("route %s not found in spec: %v", specReq.URL.Path, err)
@@ -538,7 +543,7 @@ func TestRefreshContract(t *testing.T) {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:     contractPinger{},
 		PublicAPIRoutes: func(r chi.Router) {
-			auth.RegisterPublicRoutes(r, service)
+			authhandlers.RegisterPublicRoutes(r, service)
 		},
 	})
 	validateRefresh := func(body, contentType string, validateRequest bool) (*httptest.ResponseRecorder, *openapi3filter.RequestValidationInput) {
@@ -548,7 +553,7 @@ func TestRefreshContract(t *testing.T) {
 			req.Header.Set("Content-Type", contentType)
 		}
 		specReq := req.Clone(req.Context())
-		specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+		specReq.URL.Path = req.URL.Path
 		route, pathParams, err := specRouter.FindRoute(specReq)
 		if err != nil {
 			t.Fatalf("refresh route not found in spec: %v", err)
@@ -623,14 +628,14 @@ func TestRefreshContract(t *testing.T) {
 				Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 				DB:     contractPinger{},
 				PublicAPIRoutes: func(r chi.Router) {
-					auth.RegisterPublicRoutes(r, service)
+					authhandlers.RegisterPublicRoutes(r, service)
 				},
 			})
 			req := httptest.NewRequest(http.MethodPost, "/api/auth/refresh",
 				strings.NewReader(`{"refresh_token":"current-refresh-token"}`))
 			req.Header.Set("Content-Type", "application/json")
 			specReq := req.Clone(req.Context())
-			specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+			specReq.URL.Path = req.URL.Path
 			route, pathParams, err := specRouter.FindRoute(specReq)
 			if err != nil {
 				t.Fatalf("refresh route not found in spec: %v", err)
@@ -690,13 +695,13 @@ func TestJWKSContract(t *testing.T) {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:     contractPinger{},
 		PublicAPIRoutes: func(r chi.Router) {
-			auth.RegisterPublicRoutes(r, service)
+			authhandlers.RegisterPublicRoutes(r, service)
 		},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/jwks", nil)
 	specReq := req.Clone(req.Context())
-	specReq.URL.Path = strings.TrimPrefix(req.URL.Path, "/api")
+	specReq.URL.Path = req.URL.Path
 	route, pathParams, err := specRouter.FindRoute(specReq)
 	if err != nil {
 		t.Fatalf("jwks route not found in spec: %v", err)

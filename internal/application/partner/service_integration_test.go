@@ -4,14 +4,14 @@ package partner_test
 
 import (
 	"context"
+	partnerrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/partner"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
-	"github.com/ren0503/tycoon/internal/partner"
+	"github.com/ren0503/tycoon/internal/application/partner"
+	"github.com/ren0503/tycoon/internal/application/ship"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
 )
 
 func TestPartnerContractAndSlotRules(t *testing.T) {
@@ -21,22 +21,22 @@ func TestPartnerContractAndSlotRules(t *testing.T) {
 
 	tenantID := h.SeedTenant(t)
 	principal := testutil.Principal(tenantID)
-	shipSvc := ship.New(h.Pool, testutil.Logger(t), nil)
+	shipSvc := ship.New(shiprepo.New(h.Pool), testutil.Logger(t))
 	shipRow, err := shipSvc.CreateShip(ctx, principal, ship.ShipInput{Name: "Partner Ship", Timezone: "UTC"})
 	if err != nil {
 		t.Fatalf("create ship: %v", err)
 	}
-	svc := partner.New(h.Pool, shipSvc)
+	svc := partner.New(partnerrepo.New(h.Pool), shipSvc)
 
 	p, err := svc.CreatePartner(ctx, principal, partner.PartnerInput{Name: "Vendor", BusinessType: "spa"})
 	if err != nil {
 		t.Fatalf("create partner: %v", err)
 	}
 
-	start := pgtype.Date{Time: time.Now().UTC().Truncate(24 * time.Hour), Valid: true}
-	invalidEnd := pgtype.Date{Time: start.Time.Add(-24 * time.Hour), Valid: true}
+	start := time.Now().UTC().Truncate(24 * time.Hour)
+	invalidEnd := start.Add(-24 * time.Hour)
 	if _, err := svc.CreateContract(ctx, principal, p.ID, partner.ContractInput{
-		ShipID: shipRow.ID, StartsOn: start, EndsOn: invalidEnd,
+		ShipID: shipRow.ID, StartsOn: &start, EndsOn: &invalidEnd,
 	}); err == nil {
 		t.Fatal("expected contract date validation")
 	} else {

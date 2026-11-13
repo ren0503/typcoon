@@ -8,17 +8,31 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/audit"
-	"github.com/ren0503/tycoon/internal/booking"
-	"github.com/ren0503/tycoon/internal/guest"
+	appaudit "github.com/ren0503/tycoon/internal/application/audit"
+	"github.com/ren0503/tycoon/internal/application/booking"
+	"github.com/ren0503/tycoon/internal/application/guest"
+	"github.com/ren0503/tycoon/internal/application/ship"
+	authrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/auth"
+	bookingrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/booking"
+	guestrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/guest"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	"github.com/ren0503/tycoon/internal/infrastructure/security/local"
 	"github.com/ren0503/tycoon/internal/platform/testutil"
-	"github.com/ren0503/tycoon/internal/ship"
 )
 
-type failingAppender struct{}
+type failingRepo struct{ guest.Repository }
 
-func (failingAppender) AppendTx(context.Context, audit.Execer, audit.Entry) error {
+func (r failingRepo) Begin(ctx context.Context) (guest.Tx, error) {
+	tx, err := r.Repository.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return failingTx{tx}, nil
+}
+
+type failingTx struct{ guest.Tx }
+
+func (failingTx) AppendAudit(context.Context, appaudit.Entry) error {
 	return errors.New("forced audit failure")
 }
 
@@ -34,13 +48,12 @@ func TestGuestCiphertextSecrecyAndAudit(t *testing.T) {
 	voyageID := h.SeedVoyage(t, shipID, "GUEST-1", departure)
 	bookingID := h.SeedBooking(t, shipID, voyageID)
 
-	bookingSvc := booking.New(h.Pool, ship.New(h.Pool, testutil.Logger(t), nil), nil, nil, auth.NewAccountService(h.Pool), nil)
-	auditStore := audit.NewStore(h.Pool, testutil.Logger(t))
-	cipher, err := guest.NewDevDocumentCipher()
+	bookingSvc := booking.New(bookingrepo.New(h.Pool), ship.New(shiprepo.New(h.Pool), testutil.Logger(t)), nil, nil, authrepo.NewAccountService(h.Pool))
+	cipher, err := local.NewDevDocumentCipher()
 	if err != nil {
 		t.Fatalf("build cipher: %v", err)
 	}
-	svc := guest.New(h.Pool, bookingSvc, auditStore, cipher)
+	svc := guest.New(guestrepo.New(h.Pool), bookingSvc, cipher)
 
 	document, keyID, err := cipher.Encrypt([]byte("passport-secret"))
 	if err != nil {
@@ -116,7 +129,7 @@ func TestGuestCiphertextSecrecyAndAudit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt second document: %v", err)
 	}
-	failing := guest.New(h.Pool, bookingSvc, failingAppender{}, cipher)
+	failing := guest.New(failingRepo{guestrepo.New(h.Pool)}, bookingSvc, cipher)
 	if _, err := failing.Create(ctx, principal, bookingID, guest.Input{
 		FullName: "No Audit Guest", DocumentEnc: validDocument, DocumentKeyID: &keyID2,
 	}); err == nil {
