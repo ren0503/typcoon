@@ -56,9 +56,16 @@ type Store interface {
 	RevokeAccountSessions(ctx context.Context, accountID uuid.UUID, entry audit.Entry) error
 	LinkIdentityForAccount(ctx context.Context, accountID uuid.UUID, identity LinkAccountIdentityParams, entry audit.Entry) (AccountIdentity, error)
 	UnlinkIdentityForAccount(ctx context.Context, accountID, identityID uuid.UUID, entry audit.Entry) error
-	RotateRefreshToken(ctx context.Context, hash []byte, replacement CreateRefreshTokenParams, refreshedEntry, reuseEntry audit.Entry, now time.Time) (Account, RefreshToken, error)
+	RotateRefreshToken(
+		ctx context.Context,
+		hash []byte,
+		replacement CreateRefreshTokenParams,
+		refreshedEntry, reuseEntry audit.Entry,
+		now time.Time,
+	) (Account, RefreshToken, error)
 }
 
+// Domain errors returned by the account and identity persistence port.
 var (
 	ErrIdentityNotFound     = errors.New("account identity not found")
 	ErrIdentityConflict     = errors.New("account identity already exists")

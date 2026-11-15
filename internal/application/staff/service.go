@@ -12,17 +12,54 @@ import (
 	"github.com/ren0503/tycoon/internal/application/audit"
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appship "github.com/ren0503/tycoon/internal/application/ship"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
-var (
-	departments    = map[string]bool{"security": true, "cleaning": true, "operator": true}
-	staffStatuses  = map[string]bool{"active": true, "on_leave": true, "sick": true, "inactive": true}
-	leaveTypes     = map[string]bool{"annual": true, "sick": true, "rest": true, "training": true, "other": true}
-	severities     = map[string]bool{"hard": true, "soft": true}
-	autonomyLevels = map[string]bool{"auto": true, "conditional": true, "approval": true, "never": true}
-)
+func isDepartment(department string) bool {
+	switch department {
+	case "security", "cleaning", "operator":
+		return true
+	default:
+		return false
+	}
+}
+
+func isStaffStatus(status string) bool {
+	switch status {
+	case "active", "on_leave", "sick", "inactive":
+		return true
+	default:
+		return false
+	}
+}
+
+func isLeaveType(leaveType string) bool {
+	switch leaveType {
+	case "annual", "sick", "rest", "training", "other":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSeverity(severity string) bool {
+	switch severity {
+	case "hard", "soft":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAutonomyLevel(level string) bool {
+	switch level {
+	case "auto", "conditional", "approval", "never":
+		return true
+	default:
+		return false
+	}
+}
 
 type service struct {
 	repo   Repository
@@ -48,7 +85,7 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input Staff
 	}
 	code := strings.TrimSpace(input.EmployeeCode)
 	name := strings.TrimSpace(input.FullName)
-	if code == "" || name == "" || !departments[input.Department] {
+	if code == "" || name == "" || !isDepartment(input.Department) {
 		s.logger.ErrorContext(ctx, "validation failed", "principal", p, "input", input)
 		return Staff{}, validation("Employee code, full name, and a recognised department are required.")
 	}
@@ -67,7 +104,7 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, input Staff
 		s.logger.ErrorContext(ctx, "failed to begin transaction", "principal", p, "input", input, "error", err)
 		return Staff{}, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	row, err := tx.CreateStaff(ctx, CreateStaffParams{
 		ID: id, TenantID: p.TenantID, ShipID: optionalUUID(input.ShipID), EmployeeCode: code, FullName: name,
 		Department: input.Department, RoleTitle: trimPtr(input.RoleTitle), IsSupervisor: input.IsSupervisor,
@@ -159,7 +196,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		current.FullName = strings.TrimSpace(*input.FullName)
 	}
 	if input.Department != nil {
-		if !departments[*input.Department] {
+		if !isDepartment(*input.Department) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized department", "principal", p, "input", input)
 			return Staff{}, validation("Department is not recognised.")
 		}
@@ -186,7 +223,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		current.Certifications = certifications
 	}
 	if input.Status != nil {
-		if !staffStatuses[*input.Status] {
+		if !isStaffStatus(*input.Status) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized staff status", "principal", p, "input", input)
 			return Staff{}, validation("Staff status is not recognised.")
 		}
@@ -200,7 +237,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		s.logger.ErrorContext(ctx, "failed to begin transaction", "principal", p, "input", input, "error", err)
 		return Staff{}, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	row, err := tx.UpdateStaff(ctx, UpdateStaffParams{
 		ID: id, ShipID: current.ShipID, EmployeeCode: current.EmployeeCode, FullName: current.FullName,
 		Department: current.Department, RoleTitle: current.RoleTitle, IsSupervisor: current.IsSupervisor,
@@ -239,7 +276,7 @@ func (s *service) DeleteStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		s.logger.ErrorContext(ctx, "failed to begin transaction", "principal", p, "staff_id", id, "error", err)
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	if err := tx.SoftDeleteStaff(ctx, id); err != nil {
 		s.logger.ErrorContext(ctx, "failed to delete staff", "principal", p, "staff_id", id, "error", err)
 		return err
@@ -253,31 +290,6 @@ func (s *service) DeleteStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		return err
 	}
 	return tx.Commit(ctx)
-}
-
-func (s *service) appendAudit(ctx context.Context, tx Tx, p auth.Principal, action string, entityID, tenantID, shipID uuid.UUID, details map[string]any) error {
-	payload := json.RawMessage(`{}`)
-	if details != nil {
-		encoded, err := json.Marshal(details)
-		if err != nil {
-			return apperrors.Internal(err)
-		}
-		payload = encoded
-	}
-	actorID := p.ActorID
-	entity := "staff"
-	entityRef := entityID.String()
-	entry := audit.Entry{
-		Source: "cloud", ActorType: string(p.ActorType), ActorID: optionalString(actorID),
-		Action: action, Entity: &entity, EntityID: &entityRef, Details: payload,
-	}
-	if tenantID != uuid.Nil {
-		_ = tenantID
-	}
-	if shipID != uuid.Nil {
-		entry.ShipID = &shipID
-	}
-	return tx.AppendAudit(ctx, entry)
 }
 
 func optionalString(value string) *string {
@@ -296,7 +308,7 @@ func (s *service) CreateLeave(ctx context.Context, p auth.Principal, staffID uui
 		s.logger.ErrorContext(ctx, "staff not found or access denied", "principal", p, "staff_id", staffID, "error", err)
 		return StaffLeafe{}, err
 	}
-	if !leaveTypes[input.LeaveType] || !input.EndsAt.After(input.StartsAt) {
+	if !isLeaveType(input.LeaveType) || !input.EndsAt.After(input.StartsAt) {
 		s.logger.ErrorContext(ctx, "validation failed: unrecognized leave type or end date not after start date", "principal", p, "staff_id", staffID, "input", input)
 		return StaffLeafe{}, validation("Leave type must be recognised and end after start.")
 	}
@@ -355,7 +367,7 @@ func (s *service) UpdateLeave(ctx context.Context, p auth.Principal, id uuid.UUI
 		return StaffLeafe{}, err
 	}
 	if input.LeaveType != nil {
-		if !leaveTypes[*input.LeaveType] {
+		if !isLeaveType(*input.LeaveType) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized leave type", "principal", p, "leave_id", id, "input", input)
 			return StaffLeafe{}, validation("Leave type is not recognised.")
 		}
@@ -435,7 +447,7 @@ func (s *service) CreateShiftTemplate(ctx context.Context, p auth.Principal, shi
 	}
 	code := strings.TrimSpace(input.Code)
 	name := strings.TrimSpace(input.Name)
-	if code == "" || name == "" || !departments[input.Department] || !input.StartTime.Valid || !input.EndTime.Valid {
+	if code == "" || name == "" || !isDepartment(input.Department) || !input.StartTime.Valid || !input.EndTime.Valid {
 		s.logger.ErrorContext(ctx, "validation failed for shift template", "principal", p, "ship_id", shipID, "input", input)
 		return ShiftTemplate{}, validation("Shift template code, name, department, and times are required.")
 	}
@@ -496,7 +508,7 @@ func (s *service) UpdateShiftTemplate(ctx context.Context, p auth.Principal, id 
 		return ShiftTemplate{}, err
 	}
 	if input.Department != nil {
-		if !departments[*input.Department] {
+		if !isDepartment(*input.Department) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized department", "principal", p, "shift_template_id", id, "input", input)
 			return ShiftTemplate{}, validation("Department is not recognised.")
 		}
@@ -617,7 +629,10 @@ func (s *service) UpdateCoverage(ctx context.Context, p auth.Principal, id uuid.
 	if input.ShiftTemplateID != nil {
 		template, err := s.repo.GetShiftTemplate(ctx, *input.ShiftTemplateID)
 		if err != nil || template.ShipID != current.ShipID {
-			s.logger.ErrorContext(ctx, "shift template does not exist on this ship", "principal", p, "coverage_id", id, "shift_template_id", *input.ShiftTemplateID, "error", err)
+			s.logger.ErrorContext(
+				ctx, "shift template does not exist on this ship", "principal", p,
+				"coverage_id", id, "shift_template_id", *input.ShiftTemplateID, "error", err,
+			)
 			return CoverageRequirement{}, apperrors.Validation(apperrors.CodeInvalidReference, "Shift template does not exist on this ship.")
 		}
 		current.ShiftTemplateID = *input.ShiftTemplateID
@@ -686,7 +701,7 @@ func (s *service) CreateLaborRule(ctx context.Context, p auth.Principal, input L
 		s.logger.ErrorContext(ctx, "failed to parse labor rule params", "principal", p, "input", input, "error", err)
 		return LaborRule{}, err
 	}
-	if strings.TrimSpace(input.RuleCode) == "" || !severities[input.Severity] {
+	if strings.TrimSpace(input.RuleCode) == "" || !isSeverity(input.Severity) {
 		s.logger.ErrorContext(ctx, "invalid labor rule input", "principal", p, "input", input, "error", err)
 		return LaborRule{}, validation("Rule code and a recognised severity are required.")
 	}
@@ -766,7 +781,7 @@ func (s *service) UpdateLaborRule(ctx context.Context, p auth.Principal, id uuid
 		current.RuleCode = strings.TrimSpace(*input.RuleCode)
 	}
 	if input.Severity != nil {
-		if !severities[*input.Severity] {
+		if !isSeverity(*input.Severity) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized severity", "principal", p, "labor_rule_id", id, "input", input)
 			return LaborRule{}, validation("Severity is not recognised.")
 		}
@@ -829,7 +844,7 @@ func (s *service) CreateAutonomy(ctx context.Context, p auth.Principal, input Au
 		s.logger.ErrorContext(ctx, "failed to parse autonomy policy conditions", "principal", p, "input", input, "error", err)
 		return AutonomyPolicy{}, err
 	}
-	if strings.TrimSpace(input.ChangeType) == "" || !autonomyLevels[input.Level] {
+	if strings.TrimSpace(input.ChangeType) == "" || !isAutonomyLevel(input.Level) {
 		s.logger.ErrorContext(ctx, "invalid autonomy policy input", "principal", p, "input", input, "error", err)
 		return AutonomyPolicy{}, validation("Change type and a recognised autonomy level are required.")
 	}
@@ -902,7 +917,7 @@ func (s *service) UpdateAutonomy(ctx context.Context, p auth.Principal, id uuid.
 		current.ChangeType = strings.TrimSpace(*input.ChangeType)
 	}
 	if input.Level != nil {
-		if !autonomyLevels[*input.Level] {
+		if !isAutonomyLevel(*input.Level) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized autonomy level", "principal", p, "autonomy_id", id, "input", input)
 			return AutonomyPolicy{}, validation("Autonomy level is not recognised.")
 		}
@@ -938,6 +953,35 @@ func (s *service) DeleteAutonomy(ctx context.Context, p auth.Principal, id uuid.
 	return s.repo.DeleteAutonomyPolicy(ctx, id)
 }
 
+func rollback(ctx context.Context, tx Tx) {
+	_ = tx.Rollback(ctx)
+}
+
+func (s *service) appendAudit(ctx context.Context, tx Tx, p auth.Principal, action string, entityID, tenantID, shipID uuid.UUID, details map[string]any) error {
+	payload := json.RawMessage(`{}`)
+	if details != nil {
+		encoded, err := json.Marshal(details)
+		if err != nil {
+			return apperrors.Internal(err)
+		}
+		payload = encoded
+	}
+	actorID := p.ActorID
+	entity := "staff"
+	entityRef := entityID.String()
+	entry := audit.Entry{
+		Source: "cloud", ActorType: string(p.ActorType), ActorID: optionalString(actorID),
+		Action: action, Entity: &entity, EntityID: &entityRef, Details: payload,
+	}
+	if tenantID != uuid.Nil {
+		_ = tenantID
+	}
+	if shipID != uuid.Nil {
+		entry.ShipID = &shipID
+	}
+	return tx.AppendAudit(ctx, entry)
+}
+
 func (s *service) requireTenant(p auth.Principal) error {
 	if p.TenantID == uuid.Nil {
 		return apperrors.Validation(apperrors.CodeValidationFailed, "A tenant is required.")
@@ -967,7 +1011,7 @@ func (s *service) checkStaffScope(ctx context.Context, p auth.Principal, row Sta
 }
 
 func validateCoverage(department string, minStaff int16, maxStaff *int16, days []int16, from, to *time.Time) error {
-	if !departments[department] || minStaff < 0 {
+	if !isDepartment(department) || minStaff < 0 {
 		return validation("Department must be recognised and minimum staff must not be negative.")
 	}
 	if maxStaff != nil && *maxStaff < minStaff {
@@ -1045,8 +1089,6 @@ func trimPtr(value *string) *string {
 func validation(message string) error {
 	return apperrors.Validation(apperrors.CodeValidationFailed, message)
 }
-
-var _ = time.Now
 
 func nullUUID(id uuid.UUID) uuid.NullUUID {
 	if id == uuid.Nil {

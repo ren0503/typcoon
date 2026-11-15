@@ -23,7 +23,7 @@ func TestFirebaseVerifierMapsVerifiedClaims(t *testing.T) {
 	verifier := &FirebaseVerifier{
 		client: &fakeFirebaseAuthClient{token: &firebaseauth.Token{
 			UID: "firebase-uid",
-			Claims: map[string]interface{}{
+			Claims: map[string]any{
 				"email":          "guest@example.com",
 				"email_verified": true,
 				"name":           "Guest User",
@@ -46,14 +46,14 @@ func TestFirebaseVerifierIgnoresCustomAuthorizationClaims(t *testing.T) {
 	verifier := &FirebaseVerifier{
 		client: &fakeFirebaseAuthClient{token: &firebaseauth.Token{
 			UID: "firebase-uid",
-			Claims: map[string]interface{}{
+			Claims: map[string]any{
 				"email":          "admin@example.com",
 				"email_verified": true,
 				"name":           "Admin Looking User",
 				"role":           "super_admin",
 				"admin":          true,
 				"tenant_id":      "00000000-0000-0000-0000-000000000001",
-				"ship_ids":       []interface{}{"00000000-0000-0000-0000-000000000002"},
+				"ship_ids":       []any{"00000000-0000-0000-0000-000000000002"},
 			},
 		}},
 	}
@@ -76,7 +76,7 @@ func TestFirebaseVerifierDropsUnverifiedEmail(t *testing.T) {
 	verifier := &FirebaseVerifier{
 		client: &fakeFirebaseAuthClient{token: &firebaseauth.Token{
 			UID: "firebase-uid",
-			Claims: map[string]interface{}{
+			Claims: map[string]any{
 				"email":          "guest@example.com",
 				"email_verified": false,
 			},

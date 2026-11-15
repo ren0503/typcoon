@@ -22,7 +22,7 @@ func TestRouteInventoryExcludesInternalTables(t *testing.T) {
 		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		DB:     routePinger{},
 		APIRoutes: func(r chi.Router) {
-			r.Get("/bookings", func(w http.ResponseWriter, r *http.Request) {
+			r.Get("/bookings", func(w http.ResponseWriter, _ *http.Request) {
 				httpx.WriteJSON(w, http.StatusOK, map[string]string{})
 			})
 		},

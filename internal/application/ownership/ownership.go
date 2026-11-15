@@ -1,8 +1,10 @@
+// Package ownership maps database tables to their single business-module owner.
 package ownership
 
 // Module identifies a business module that owns a subset of the database tables.
 type Module string
 
+// Business module identifiers used by the ownership map.
 const (
 	ModuleTenant   Module = "tenant"
 	ModuleAuth     Module = "auth"

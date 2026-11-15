@@ -51,25 +51,6 @@ func NewKMSSigner(ctx context.Context, client KMSClient, kid, keyARN string) (*K
 	return signer, nil
 }
 
-func (s *KMSSigner) loadPublicKey(ctx context.Context) error {
-	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-	output, err := s.client.GetPublicKey(callCtx, &awskms.GetPublicKeyInput{KeyId: aws.String(s.keyARN)})
-	if err != nil {
-		return fmt.Errorf("get KMS public key: %w", err)
-	}
-	parsed, err := x509.ParsePKIXPublicKey(output.PublicKey)
-	if err != nil {
-		return fmt.Errorf("parse KMS public key: %w", err)
-	}
-	publicKey, ok := parsed.(*rsa.PublicKey)
-	if !ok {
-		return errors.New("KMS public key is not RSA")
-	}
-	s.publicKey = publicKey
-	return nil
-}
-
 // KID returns the key identifier published in the JWT header.
 func (s *KMSSigner) KID() string { return s.kid }
 
@@ -91,6 +72,25 @@ func (s *KMSSigner) Sign(_ io.Reader, digest []byte, opts crypto.SignerOpts) ([]
 func (s *KMSSigner) SignJWT(ctx context.Context, signingInput []byte) ([]byte, error) {
 	digest := sha256.Sum256(signingInput)
 	return s.signDigest(ctx, digest[:])
+}
+
+func (s *KMSSigner) loadPublicKey(ctx context.Context) error {
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	output, err := s.client.GetPublicKey(callCtx, &awskms.GetPublicKeyInput{KeyId: aws.String(s.keyARN)})
+	if err != nil {
+		return fmt.Errorf("get KMS public key: %w", err)
+	}
+	parsed, err := x509.ParsePKIXPublicKey(output.PublicKey)
+	if err != nil {
+		return fmt.Errorf("parse KMS public key: %w", err)
+	}
+	publicKey, ok := parsed.(*rsa.PublicKey)
+	if !ok {
+		return errors.New("KMS public key is not RSA")
+	}
+	s.publicKey = publicKey
+	return nil
 }
 
 func (s *KMSSigner) signDigest(ctx context.Context, digest []byte) ([]byte, error) {

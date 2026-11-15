@@ -19,11 +19,17 @@ func (r *Repo) GetShipStructureImport(ctx context.Context, p appship.GetShipStru
 	row, err := r.q.GetShipStructureImport(ctx, convert.To[sqlc.GetShipStructureImportParams](p))
 	return convert.To[appship.ShipStructureImport](row), postgres.MapPgError(err)
 }
-func (r *Repo) GetShipStructureImportByIdempotencyKey(ctx context.Context, p appship.GetShipStructureImportByIdempotencyKeyParams) (appship.ShipStructureImport, error) {
+func (r *Repo) GetShipStructureImportByIdempotencyKey(
+	ctx context.Context,
+	p appship.GetShipStructureImportByIdempotencyKeyParams,
+) (appship.ShipStructureImport, error) {
 	row, err := r.q.GetShipStructureImportByIdempotencyKey(ctx, convert.To[sqlc.GetShipStructureImportByIdempotencyKeyParams](p))
 	return convert.To[appship.ShipStructureImport](row), postgres.MapPgError(err)
 }
-func (r *Repo) UpdateShipStructureImportValidation(ctx context.Context, p appship.UpdateShipStructureImportValidationParams) (appship.ShipStructureImport, error) {
+func (r *Repo) UpdateShipStructureImportValidation(
+	ctx context.Context,
+	p appship.UpdateShipStructureImportValidationParams,
+) (appship.ShipStructureImport, error) {
 	row, err := r.q.UpdateShipStructureImportValidation(ctx, convert.To[sqlc.UpdateShipStructureImportValidationParams](p))
 	return convert.To[appship.ShipStructureImport](row), postgres.MapPgError(err)
 }

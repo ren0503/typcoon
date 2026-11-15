@@ -17,12 +17,15 @@ const (
 	// MaxAccessTokenTTL is the hard upper bound for backend access tokens.
 	MaxAccessTokenTTL = 15 * time.Minute
 
-	ClientGuestMobile  = "guest_mobile"
+	// ClientGuestMobile identifies the guest mobile client.
+	ClientGuestMobile = "guest_mobile"
+	// ClientFleetConsole identifies the fleet console client.
 	ClientFleetConsole = "fleet_console"
 
 	defaultClockSkew = 60 * time.Second
 )
 
+// ErrInvalidAccessToken is returned when an access token fails validation.
 var ErrInvalidAccessToken = errors.New("invalid access token")
 
 // Clock supplies the current time for deterministic token tests.

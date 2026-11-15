@@ -87,49 +87,49 @@ passes. The complete package graph must be acyclic.
 
 ### Tenant Module
 
-- [X] T015 [US1] Create `internal/application/tenant/{types.go,ports.go}` and move `internal/tenant/{module.go,service.go}` to `internal/application/tenant/`; replace `sqlc.Tenant`/`sqlc.*Params` with application `Tenant`/`CreateParams`/`ListParams`/`UpdateParams`, keep validation/errors/pagination unchanged, and move `service_integration_test.go` with import-only changes.
+- [X] T015 [US1] Create `internal/application/tenant/{types.go,interface.go}` and move `internal/tenant/{module.go,service.go}` to `internal/application/tenant/`; replace `sqlc.Tenant`/`sqlc.*Params` with application `Tenant`/`CreateParams`/`ListParams`/`UpdateParams`, keep validation/errors/pagination unchanged, and move `service_integration_test.go` with import-only changes.
 - [X] T016 [US1] Create `internal/infrastructure/persistence/postgres/tenant/repo.go` implementing the tenant repository port with `sqlc.New` and `postgres.MapPgError`; map rows field-for-field and preserve create/list/get/update/soft-delete SQL behavior.
 - [X] T017 [US1] Move `internal/tenant/handlers.go` to `internal/transport/http/handlers/tenant/handlers.go`; keep `/api/tenants` routes, DTOs, validation messages, envelopes, and response fields unchanged; update route registration.
 
 ### Voyage Module
 
-- [X] T018 [US1] Create `internal/application/voyage/{types.go,ports.go}` and move `internal/voyage/{module.go,service.go}` to `internal/application/voyage/`; replace `sqlc.Port`/`sqlc.Voyage`/`sqlc.PortCall` and params with app types, convert `decimal.NullDecimal` latitude/longitude to `*float64` at the port boundary, and move `service_integration_test.go` with import-only changes.
+- [X] T018 [US1] Create `internal/application/voyage/{types.go,interface.go}` and move `internal/voyage/{module.go,service.go}` to `internal/application/voyage/`; replace `sqlc.Port`/`sqlc.Voyage`/`sqlc.PortCall` and params with app types, convert `decimal.NullDecimal` latitude/longitude to `*float64` at the port boundary, and move `service_integration_test.go` with import-only changes.
 - [X] T019 [US1] Create `internal/infrastructure/persistence/postgres/voyage/repo.go` implementing the voyage repository port with pgx/sqlc; map `decimal.NullDecimal` ↔ `*float64`, preserve port/voyage/port-call SQL, pagination, and error translation.
 - [X] T020 [US1] Move `internal/voyage/handlers.go` to `internal/transport/http/handlers/voyage/handlers.go`; preserve `/api/ports`, `/api/voyages`, `/api/voyages/{voyageId}/port-calls`, and `/api/port-calls/{id}` routes, DTOs, time formatting, and envelopes unchanged.
 
 ### Ship Module
 
-- [X] T021 [US1] Create `internal/application/ship/{types.go,ports.go}` and move `internal/ship/{module.go,service.go,import_service.go,import_types.go,import_validation.go,template.go}` to `internal/application/ship/`; replace sqlc/pgx types, define application `Repository` plus `Tx` with `AppendAudit`/`Commit`/`Rollback` for import confirmation, and move ship tests with import-only changes.
+- [X] T021 [US1] Create `internal/application/ship/{types.go,interface.go}` and move `internal/ship/{module.go,service.go,import_service.go,import_types.go,import_validation.go,template.go}` to `internal/application/ship/`; replace sqlc/pgx types, define application `Repository` plus `Tx` with `AppendAudit`/`Commit`/`Rollback` for import confirmation, and move ship tests with import-only changes.
 - [X] T022 [US1] Create `internal/infrastructure/persistence/postgres/ship/{repo.go,import_repo.go,tx.go}`; implement ship/deck/area/room/import SQL with `sqlc.New`, `postgres.MapPgError`, same-transaction audit via `infrastructure/.../postgres/audit.AppendTx`, and preserve import row locks, conflict checks, terminal commits, and rollback behavior.
 - [X] T023 [US1] Move `internal/ship/{handlers.go,import_handlers.go}` to `internal/transport/http/handlers/ship/`; preserve `/api/ships`, structure import, decks/areas/rooms routes, multipart/upload handling, DTOs, status codes, and error envelopes unchanged.
 
 ### Staff Module
 
-- [X] T024 [US1] Create `internal/application/staff/{types.go,ports.go}` and move `internal/staff/{module.go,service.go,pin.go}` to `internal/application/staff/`; replace `pgtype.Date` with `*time.Time`, `pgtype.Time` with `staff.TimeOfDay{Microseconds,Valid}`, replace sqlc/pgx types, define app `Repository` plus audited `Tx`, and move staff tests with import-only changes.
+- [X] T024 [US1] Create `internal/application/staff/{types.go,interface.go}` and move `internal/staff/{module.go,service.go,pin.go}` to `internal/application/staff/`; replace `pgtype.Date` with `*time.Time`, `pgtype.Time` with `staff.TimeOfDay{Microseconds,Valid}`, replace sqlc/pgx types, define app `Repository` plus audited `Tx`, and move staff tests with import-only changes.
 - [X] T025 [US1] Create `internal/infrastructure/persistence/postgres/staff/{repo.go,tx.go}`; implement all staff/leave/credential/shift/coverage/labor/autonomy SQL, map date/time values, use same-transaction audit through `Tx.AppendAudit`, and preserve error translation and soft-delete semantics.
 - [X] T026 [US1] Move `internal/staff/handlers.go` to `internal/transport/http/handlers/staff/handlers.go`; keep `/api/staff`, leaves, credential, shift-template, coverage, labor-rule, and autonomy routes, date/time parsing and formatting, DTOs, and envelopes unchanged.
 
 ### Partner Module
 
-- [X] T027 [US1] Create `internal/application/partner/{types.go,ports.go}` and move `internal/partner/{module.go,service.go}` to `internal/application/partner/`; replace sqlc/pgx types, map `pgtype.Date` to `*time.Time` at the port boundary, declare a consumer-owned ship tenant lookup, and move partner tests with import-only changes.
+- [X] T027 [US1] Create `internal/application/partner/{types.go,interface.go}` and move `internal/partner/{module.go,service.go}` to `internal/application/partner/`; replace sqlc/pgx types, map `pgtype.Date` to `*time.Time` at the port boundary, declare a consumer-owned ship tenant lookup, and move partner tests with import-only changes.
 - [X] T028 [US1] Create `internal/infrastructure/persistence/postgres/partner/repo.go`; implement partner/contract/staff/service/slot SQL with row/date mapping, pagination, and `postgres.MapPgError`; preserve exclusion/overlap and status behavior.
 - [X] T029 [US1] Move `internal/partner/handlers.go` to `internal/transport/http/handlers/partner/handlers.go`; preserve `/api/partners`, nested contracts/staff/services/slots, standalone update/delete routes, DTOs, date parsing, and envelopes unchanged.
 
 ### Booking Module
 
-- [X] T030 [US1] Create `internal/application/booking/{types.go,ports.go}` and move `internal/booking/{module.go,service.go}` to `internal/application/booking/`; replace sqlc/pgx types, define app `Repository` plus audited `Tx`, keep idempotency decisions in the service, and move `service_integration_test.go` with import-only changes.
+- [X] T030 [US1] Create `internal/application/booking/{types.go,interface.go}` and move `internal/booking/{module.go,service.go}` to `internal/application/booking/`; replace sqlc/pgx types, define app `Repository` plus audited `Tx`, keep idempotency decisions in the service, and move `service_integration_test.go` with import-only changes.
 - [X] T031 [US1] Create `internal/infrastructure/persistence/postgres/booking/{repo.go,tx.go}`; implement booking/service-booking SQL, idempotency lookups/conflicts, same-transaction audit through `Tx.AppendAudit`, row mapping, and error translation unchanged.
 - [X] T032 [US1] Move `internal/booking/handlers.go` to `internal/transport/http/handlers/booking/handlers.go`; preserve `/api/bookings`, `/api/service-bookings`, idempotency headers, DTOs, status codes, and envelopes unchanged.
 
 ### Guest Module
 
-- [X] T033 [US1] Create `internal/application/guest/{types.go,ports.go}` and move `internal/guest/{module.go,service.go}` to `internal/application/guest/`; keep `DocumentCipher` and encryption-presence rules in application, replace sqlc/pgx types, map `pgtype.Date` to `*time.Time`, define app `Repository` plus audited `Tx`, and move guest tests with import-only changes.
+- [X] T033 [US1] Create `internal/application/guest/{types.go,interface.go}` and move `internal/guest/{module.go,service.go}` to `internal/application/guest/`; keep `DocumentCipher` and encryption-presence rules in application, replace sqlc/pgx types, map `pgtype.Date` to `*time.Time`, define app `Repository` plus audited `Tx`, and move guest tests with import-only changes.
 - [X] T034 [US1] Create `internal/infrastructure/persistence/postgres/guest/{repo.go,tx.go}`; implement guest/boarding-pass SQL, date mapping, same-transaction audit via `Tx.AppendAudit`, and preserve secrecy/revocation behavior and errors.
 - [X] T035 [US1] Move `internal/guest/{dto.go,handlers.go}` to `internal/transport/http/handlers/guest/`; preserve `/api/bookings/{bookingId}/guests`, boarding-pass issue/list/revoke/detail routes, DTOs, date parsing, document handling, and envelopes unchanged.
 
 ### Authentication Module
 
-- [X] T036 [US1] Create `internal/application/auth/{types.go,ports.go}` and move `internal/auth/{module.go,service.go,principal.go,tokens.go,refresh.go,audit.go}` to `internal/application/auth/`; declare `Store`, `Verifier`, `Signer`, `KeySet`, `RateLimiter`, `AccountLookup`, and `Clock` ports; remove `net/http`, pgx, sqlc, AWS, Redis, and Firebase imports from application/auth; move unit tests with import-only changes.
+- [X] T036 [US1] Create `internal/application/auth/{types.go,interface.go}` and move `internal/auth/{module.go,service.go,principal.go,tokens.go,refresh.go,audit.go}` to `internal/application/auth/`; declare `Store`, `Verifier`, `Signer`, `KeySet`, `RateLimiter`, `AccountLookup`, and `Clock` ports; remove `net/http`, pgx, sqlc, AWS, Redis, and Firebase imports from application/auth; move unit tests with import-only changes.
 - [X] T037 [US1] Create `internal/infrastructure/persistence/postgres/auth/{store.go,accounts.go}` implementing the application `Store`/account lookup with pgx/sqlc, application row types, and same-transaction audit; move `store_test.go` and auth persistence integration tests with construction/import changes only.
 - [X] T038 [US1] Create external auth adapters: `internal/infrastructure/identity/firebase/verifier.go`, `internal/infrastructure/security/kms/signer.go`, `internal/infrastructure/security/local/{signer.go,document_cipher.go}`, and `internal/infrastructure/cache/redis/limiter.go`; move Firebase/signing/rate-limit/local-cipher tests without assertion changes.
 - [X] T039 [US1] Move `internal/auth/{handlers.go,dto.go,provider.go}` to `internal/transport/http/handlers/auth/` and `internal/transport/http/middleware/`; keep `AccessTokenProvider`, `DevHeaderProvider`, `DenyAllProvider`, bearer parsing, public/protected auth routes, DTOs, error responses, and middleware behavior unchanged.
@@ -205,7 +205,7 @@ still matches all tables.
 - [X] T063 [US4] Verify `internal/application/ownership/ownership.go` still maps every table to the same module and update `internal/application/ownership/ownership_test.go` only for imports; confirm no business table owner changed.
 - [X] T064 [US4] Audit `internal/application/` for leftover `net/http`, chi, pgx, sqlc, AWS, Redis, Firebase, SQL strings, route registration, or adapter construction; move any remainder to `internal/transport/http/`, `internal/infrastructure/`, or the composition root.
 - [X] T065 [US4] Confirm no empty/placeholder directories or packages were created for worker, hub, SQLite, SNS, SQS, S3, Redshift, EventBridge, certificates, metrics, or route-less modules; update `internal/app/boundaries_test.go` to reject legacy paths if not already done.
-- [X] T066 [US4] Review package comments and ownership boundaries in `internal/application/*/module.go` and `internal/application/*/ports.go`; update comments only where needed to state rules/services vs transport/persistence, with no behavior changes.
+- [X] T066 [US4] Review package comments and ownership boundaries in `internal/application/*/module.go` and `internal/application/*/interface.go`; update comments only where needed to state rules/services vs transport/persistence, with no behavior changes.
 
 **Checkpoint**: Every package maps to a real responsibility and the target tree contains no placeholders.
 

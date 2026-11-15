@@ -4,9 +4,10 @@ package ship_test
 
 import (
 	"context"
-	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
 	"testing"
 	"time"
+
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
 
 	"github.com/ren0503/tycoon/internal/application/ship"
 	"github.com/ren0503/tycoon/internal/platform/testutil"

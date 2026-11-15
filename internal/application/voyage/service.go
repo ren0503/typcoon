@@ -11,12 +11,17 @@ import (
 
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appship "github.com/ren0503/tycoon/internal/application/ship"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
-var portCallStatuses = map[string]bool{
-	"scheduled": true, "arrived": true, "departed": true, "skipped": true,
+func isPortCallStatus(status string) bool {
+	switch status {
+	case "scheduled", "arrived", "departed", "skipped":
+		return true
+	default:
+		return false
+	}
 }
 
 type service struct {
@@ -175,14 +180,15 @@ func (s *service) ListVoyages(ctx context.Context, p auth.Principal, shipID *uui
 		err   error
 	)
 	shipPart := ""
-	if shipID != nil {
+	switch {
+	case shipID != nil:
 		if err := s.requireShip(ctx, p, *shipID); err != nil {
 			return Page[Voyage]{}, err
 		}
 		shipPart = shipID.String()
-	} else if p.ActorType != auth.ActorSystem {
+	case p.ActorType != auth.ActorSystem:
 		shipPart = "tenant:" + p.TenantID.String()
-	} else {
+	default:
 		shipPart = "all"
 	}
 	parts = []string{"voyages", shipPart}
@@ -194,15 +200,16 @@ func (s *service) ListVoyages(ctx context.Context, p auth.Principal, shipID *uui
 	if err != nil {
 		return Page[Voyage]{}, err
 	}
-	if shipID != nil {
+	switch {
+	case shipID != nil:
 		rows, err = s.repo.ListVoyages(ctx, ListVoyagesParams{
 			ShipID: nullUUID(*shipID), AfterSort: afterSort, After: nullUUID(cursor.ID), PageLimit: limit + 1,
 		})
-	} else if p.ActorType == auth.ActorSystem {
+	case p.ActorType == auth.ActorSystem:
 		rows, err = s.repo.ListVoyages(ctx, ListVoyagesParams{
 			AfterSort: afterSort, After: nullUUID(cursor.ID), PageLimit: limit + 1,
 		})
-	} else {
+	default:
 		rows, err = s.repo.ListVoyagesForTenant(ctx, ListVoyagesForTenantParams{
 			TenantID: p.TenantID, AfterSort: afterSort, After: nullUUID(cursor.ID), PageLimit: limit + 1,
 		})
@@ -376,7 +383,7 @@ func (s *service) UpdatePortCall(ctx context.Context, p auth.Principal, id uuid.
 		current.AllowsDisembark = *input.AllowsDisembark
 	}
 	if input.Status != nil {
-		if !portCallStatuses[*input.Status] {
+		if !isPortCallStatus(*input.Status) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized port call status", "principal", p, "input", input)
 			return PortCall{}, validation("Port call status is not recognised.")
 		}

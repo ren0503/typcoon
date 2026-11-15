@@ -5,7 +5,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	appship "github.com/ren0503/tycoon/internal/application/ship"
@@ -128,5 +127,3 @@ func mapDelete(_ int64, err error) error {
 	}
 	return nil
 }
-
-var _ = pgx.ErrNoRows

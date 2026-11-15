@@ -41,7 +41,7 @@ type testKeySet struct {
 	all    map[string]*testSigner
 }
 
-func newTestKeySet(t *testing.T, active string, signers ...Signer) (*testKeySet, error) {
+func newTestKeySet(t *testing.T, active string, signers ...Signer) *testKeySet {
 	t.Helper()
 	set := &testKeySet{active: active, all: map[string]*testSigner{}}
 	for _, signer := range signers {
@@ -51,7 +51,7 @@ func newTestKeySet(t *testing.T, active string, signers ...Signer) (*testKeySet,
 		}
 		set.all[typed.KID()] = typed
 	}
-	return set, nil
+	return set
 }
 
 func (s *testKeySet) Active(context.Context) (Signer, error) {

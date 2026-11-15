@@ -29,9 +29,9 @@ func TestTemplateSheetsAndHeaders(t *testing.T) {
 		}
 	}
 	for sheet, want := range map[string][]string{
-		"Decks": deckColumns,
-		"Areas": areaColumns,
-		"Rooms": roomColumns,
+		"Decks": deckColumnValues(),
+		"Areas": areaColumnValues(),
+		"Rooms": roomColumnValues(),
 	} {
 		rows, err := file.GetRows(sheet)
 		if err != nil || len(rows) == 0 {
@@ -64,12 +64,12 @@ func TestTemplateReferenceDocumentsValidationRules(t *testing.T) {
 		reference.WriteString("\n")
 	}
 	text := reference.String()
-	for areaType := range areaTypes {
+	for _, areaType := range areaTypeValues() {
 		if !strings.Contains(text, areaType) {
 			t.Fatalf("reference sheet does not document area type %q", areaType)
 		}
 	}
-	for roomType := range roomTypes {
+	for _, roomType := range roomTypeValues() {
 		if !strings.Contains(text, roomType) {
 			t.Fatalf("reference sheet does not document room type %q", roomType)
 		}

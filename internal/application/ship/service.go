@@ -9,22 +9,44 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
-var (
-	roomTypes = map[string]bool{
-		"inside": true, "oceanview": true, "balcony": true,
-		"suite": true, "crew": true, "other": true,
+func isShipStatus(status string) bool {
+	switch status {
+	case "active", "maintenance", "retired":
+		return true
+	default:
+		return false
 	}
-	areaTypes = map[string]bool{
-		"restaurant": true, "lobby": true, "open_deck": true, "theatre": true,
-		"shop": true, "corridor": true, "stairwell": true, "spa": true,
-		"pool": true, "other": true,
+}
+
+func isAreaType(areaType string) bool {
+	switch areaType {
+	case "restaurant", "lobby", "open_deck", "theatre", "shop", "corridor", "stairwell", "spa", "pool", "other":
+		return true
+	default:
+		return false
 	}
-	shipStatuses = map[string]bool{"active": true, "maintenance": true, "retired": true}
-)
+}
+
+func isRoomType(roomType string) bool {
+	switch roomType {
+	case "inside", "oceanview", "balcony", "suite", "crew", "other":
+		return true
+	default:
+		return false
+	}
+}
+
+func areaTypeValues() []string {
+	return []string{"restaurant", "lobby", "open_deck", "theatre", "shop", "corridor", "stairwell", "spa", "pool", "other"}
+}
+
+func roomTypeValues() []string {
+	return []string{"inside", "oceanview", "balcony", "suite", "crew", "other"}
+}
 
 type service struct {
 	repo   Repository
@@ -67,7 +89,7 @@ func (s *service) CreateShip(ctx context.Context, p auth.Principal, input ShipIn
 	if status == "" {
 		status = "active"
 	}
-	if !shipStatuses[status] {
+	if !isShipStatus(status) {
 		s.logger.ErrorContext(ctx, "validation failed: unrecognized ship status", "principal", p, "input", input)
 		return Ship{}, validation("Ship status is not recognised.")
 	}
@@ -139,7 +161,7 @@ func (s *service) UpdateShip(ctx context.Context, p auth.Principal, id uuid.UUID
 		current.FlagState = trimPtr(input.FlagState)
 	}
 	if input.Status != nil {
-		if !shipStatuses[*input.Status] {
+		if !isShipStatus(*input.Status) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized ship status", "principal", p, "input", input)
 			return Ship{}, validation("Ship status is not recognised.")
 		}
@@ -265,7 +287,7 @@ func (s *service) CreateArea(ctx context.Context, p auth.Principal, shipID uuid.
 		return Area{}, err
 	}
 	name := strings.TrimSpace(input.Name)
-	if name == "" || !areaTypes[input.AreaType] {
+	if name == "" || !isAreaType(input.AreaType) {
 		s.logger.ErrorContext(ctx, "validation failed: area name and type are required", "principal", p, "input", input)
 		return Area{}, validation("Area name and a recognised area type are required.")
 	}
@@ -373,7 +395,7 @@ func (s *service) CreateRoom(ctx context.Context, p auth.Principal, shipID uuid.
 		return Room{}, err
 	}
 	number := strings.TrimSpace(input.Number)
-	if number == "" || !roomTypes[input.RoomType] || input.Capacity <= 0 {
+	if number == "" || !isRoomType(input.RoomType) || input.Capacity <= 0 {
 		s.logger.ErrorContext(ctx, "validation failed: room number, type, and positive capacity are required", "principal", p, "input", input)
 		return Room{}, validation("Room number, a recognised room type, and positive capacity are required.")
 	}
@@ -446,7 +468,7 @@ func (s *service) UpdateRoom(ctx context.Context, p auth.Principal, id uuid.UUID
 		current.Number = strings.TrimSpace(*input.Number)
 	}
 	if input.RoomType != nil {
-		if !roomTypes[*input.RoomType] {
+		if !isRoomType(*input.RoomType) {
 			s.logger.ErrorContext(ctx, "validation failed: unrecognized room type", "principal", p, "input", input)
 			return Room{}, validation("Room type is not recognised.")
 		}

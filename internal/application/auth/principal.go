@@ -9,6 +9,7 @@ import (
 // ActorType identifies who performed an action for audit purposes.
 type ActorType string
 
+// Known actor types recorded in audit entries.
 const (
 	ActorAdmin   ActorType = "admin"
 	ActorAccount ActorType = "account"

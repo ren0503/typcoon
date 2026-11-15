@@ -9,7 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/transport/http/httpx"
 )
 
@@ -21,23 +21,6 @@ type Handler struct {
 // NewHandler builds auth handlers over the public service.
 func NewHandler(service Service) *Handler {
 	return &Handler{service: service}
-}
-
-// RegisterPublicRoutes mounts auth routes that must bypass bearer authentication.
-func RegisterPublicRoutes(r chi.Router, service Service) {
-	handler := NewHandler(service)
-	r.Post("/auth/firebase/exchange", handler.exchange)
-	r.Post("/auth/refresh", handler.refresh)
-	r.Post("/auth/logout", handler.logout)
-	r.Get("/auth/jwks", handler.jwks)
-}
-
-// RegisterProtectedRoutes mounts auth routes behind the global bearer middleware.
-func RegisterProtectedRoutes(r chi.Router, service Service) {
-	handler := NewHandler(service)
-	r.Post("/auth/logout-all", handler.logoutAll)
-	r.Post("/auth/identities/link", handler.linkIdentity)
-	r.Delete("/auth/identities/{identityId}", handler.unlinkIdentity)
 }
 
 func (h *Handler) exchange(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +89,7 @@ func (h *Handler) jwks(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) logoutAll(w http.ResponseWriter, r *http.Request) {
 	httpx.SetNoStore(w)
-	accountID, ok := accountIDFromPrincipal(r)
+	accountID, ok := AccountIDFromPrincipal(r)
 	if !ok {
 		httpx.WriteError(w, r, apperrors.Unauthorized("Authentication is required."))
 		return
@@ -120,7 +103,7 @@ func (h *Handler) logoutAll(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) linkIdentity(w http.ResponseWriter, r *http.Request) {
 	httpx.SetNoStore(w)
-	accountID, ok := accountIDFromPrincipal(r)
+	accountID, ok := AccountIDFromPrincipal(r)
 	if !ok {
 		httpx.WriteError(w, r, apperrors.Unauthorized("Authentication is required."))
 		return
@@ -140,7 +123,7 @@ func (h *Handler) linkIdentity(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) unlinkIdentity(w http.ResponseWriter, r *http.Request) {
 	httpx.SetNoStore(w)
-	accountID, ok := accountIDFromPrincipal(r)
+	accountID, ok := AccountIDFromPrincipal(r)
 	if !ok {
 		httpx.WriteError(w, r, apperrors.Unauthorized("Authentication is required."))
 		return
@@ -157,26 +140,11 @@ func (h *Handler) unlinkIdentity(w http.ResponseWriter, r *http.Request) {
 	httpx.NoContent(w)
 }
 
-func accountIDFromPrincipal(r *http.Request) (uuid.UUID, bool) {
-	principal, ok := PrincipalFrom(r.Context())
-	if !ok {
-		return uuid.Nil, false
-	}
-	accountID := principal.AccountID
-	if accountID == uuid.Nil && principal.ActorType == ActorAccount {
-		accountID, _ = uuid.Parse(principal.ActorID)
-	}
-	return accountID, accountID != uuid.Nil
-}
-
 func writeAuthError(w http.ResponseWriter, r *http.Request, err error) {
 	var rateLimited *RateLimitedError
 	switch {
 	case errors.As(err, &rateLimited):
-		retryAfter := int(math.Ceil(rateLimited.RetryAfter.Seconds()))
-		if retryAfter < 1 {
-			retryAfter = 1
-		}
+		retryAfter := max(int(math.Ceil(rateLimited.RetryAfter.Seconds())), 1)
 		w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 		httpx.WriteError(w, r, apperrors.RateLimited("Too many authentication attempts. Retry later."))
 	case errors.Is(err, ErrAuthenticationFailed):

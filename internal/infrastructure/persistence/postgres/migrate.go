@@ -1,4 +1,4 @@
-// Package database owns connection lifecycle, migrations, and pg error mapping.
+// Package postgres owns connection lifecycle, migrations, and pg error mapping.
 package postgres
 
 import (
@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 
+	// Register the pgx database/sql driver used by migrations.
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 

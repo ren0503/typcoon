@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
 func TestReadUploadReturnsSanitizedFile(t *testing.T) {

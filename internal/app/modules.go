@@ -66,7 +66,7 @@ func BuildModules(deps ModuleDeps) Modules {
 	voyageSvc := appvoyage.New(deps.VoyageRepo, deps.Logger, shipSvc)
 	staffSvc := appstaff.New(deps.StaffRepo, deps.Logger, shipSvc)
 	partnerSvc := apppartner.New(deps.PartnerRepo, shipSvc)
-	bookingSvc := appbooking.New(deps.BookingRepo, shipSvc, voyageSvc, partnerSvc, deps.Accounts)
+	bookingSvc := appbooking.New(deps.BookingRepo, shipSvc, voyageSvc, partnerSvc, deps.Accounts, deps.Logger)
 	return Modules{
 		AuthSvc:     deps.Auth,
 		TenantSvc:   apptenant.New(deps.TenantRepo),
@@ -76,7 +76,7 @@ func BuildModules(deps ModuleDeps) Modules {
 		PartnerSvc:  partnerSvc,
 		BookingSvc:  bookingSvc,
 		GuestSvc:    appguest.New(deps.GuestRepo, bookingSvc, deps.DocumentCipher),
-		AIParamsSvc: appai.New(deps.AIRepo),
+		AIParamsSvc: appai.New(deps.AIRepo, deps.Logger),
 		FeedbackSvc: appfeedback.New(deps.FeedbackRepo, shipSvc, voyageSvc),
 		SyncSvc:     appsync.New(deps.SyncRepo, shipSvc, voyageSvc),
 	}

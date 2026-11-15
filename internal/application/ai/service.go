@@ -2,13 +2,15 @@ package ai
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
+	"github.com/ren0503/tycoon/internal/platform/helpers"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
@@ -31,87 +33,91 @@ type ParamView struct {
 }
 
 type service struct {
-	repo Repository
+	repo   Repository
+	logger *slog.Logger
 }
 
 // New builds the AI parameter metadata service.
-func New(repo Repository) AIParamService {
-	return &service{repo: repo}
+func New(repo Repository, logger *slog.Logger) AIParamService {
+	return &service{repo: repo, logger: logger}
 }
 
-func (s *service) Create(ctx context.Context, p auth.Principal, input ParamInput) (ParamView, error) {
-	if !p.CanAccessTenant(input.TenantID) {
-		return ParamView{}, apperrors.Forbidden("AI parameter access is not permitted.")
+func (s *service) Create(ctx context.Context, p auth.Principal, input ParamInput) (view ParamView, err error) {
+	defer func() { s.logOperation(ctx, "create", err) }()
+
+	err = s.validateBeforeCreate(p, input)
+	if err != nil {
+		return ParamView{}, err
 	}
-	if strings.TrimSpace(input.Kind) == "" || input.ParamVersion < 1 {
-		return ParamView{}, validation("kind and param_version are required.")
-	}
-	if input.Status == "" {
-		input.Status = "draft"
-	}
-	if !validStatus(input.Status) {
-		return ParamView{}, validation("AI parameter status is not recognised.")
-	}
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		return ParamView{}, apperrors.Internal(err)
 	}
-	row, err := s.repo.CreateAIParam(ctx, CreateAIParamParams{
-		ID: id, TenantID: input.TenantID, Kind: input.Kind, ParamVersion: input.ParamVersion,
-		StorageKey: input.StorageKey, Sha256: input.Sha256, Kid: input.Kid, Signature: input.Signature,
-		Status: input.Status, ReleasedAt: input.ReleasedAt, Notes: input.Notes,
-	})
+
+	row, err := s.repo.CreateAIParam(ctx, input.toCreateAPIParam(id))
 	if err != nil {
 		return ParamView{}, err
 	}
-	return toView(row), nil
+
+	return row.toView(), nil
 }
 
-func (s *service) Get(ctx context.Context, p auth.Principal, id uuid.UUID) (ParamView, error) {
+func (s *service) Get(ctx context.Context, p auth.Principal, id uuid.UUID) (view ParamView, err error) {
+	defer func() { s.logOperation(ctx, "get", err) }()
+
 	row, err := s.repo.GetAIParam(ctx, id)
 	if err != nil {
 		return ParamView{}, err
 	}
+
 	if !p.CanAccessTenant(row.TenantID) {
 		return ParamView{}, apperrors.NotFound(apperrors.CodeNotFound, "Resource not found.")
 	}
-	return toView(row), nil
+
+	return row.toView(), nil
 }
 
-func (s *service) List(ctx context.Context, p auth.Principal, tenantID uuid.UUID, kind *string, rawCursor string, limit int32) (Page[ParamView], error) {
+func (s *service) List(ctx context.Context, p auth.Principal, tenantID uuid.UUID, kind *string, rawCursor string, limit int32) (data pagination.Page[ParamView], err error) {
+	defer func() { s.logOperation(ctx, "list", err) }()
+
 	if !p.CanAccessTenant(tenantID) {
-		return Page[ParamView]{}, apperrors.Forbidden("AI parameter access is not permitted.")
+		return pagination.Page[ParamView]{}, apperrors.Forbidden("AI parameter access is not permitted.")
 	}
 	parts := []string{"ai_params", tenantID.String()}
 	if kind != nil {
 		parts = append(parts, *kind)
 	}
+
 	cursor, err := pagination.Decode(rawCursor, pagination.FilterHash(parts...))
 	if err != nil {
-		return Page[ParamView]{}, err
+		return pagination.Page[ParamView]{}, err
 	}
+
 	var kindParam *string
 	if kind != nil {
 		kindParam = kind
 	}
+
 	rows, err := s.repo.ListAIParams(ctx, ListAIParamsParams{
-		TenantID: tenantID, Kind: kindParam, After: nullUUID(cursor.ID), PageLimit: limit + 1,
+		TenantID: tenantID, Kind: kindParam, After: helpers.NullUUID(cursor.ID), PageLimit: limit + 1,
 	})
 	if err != nil {
-		return Page[ParamView]{}, err
+		return pagination.Page[ParamView]{}, err
 	}
-	page := Page[ParamView]{}
 	if len(rows) > int(limit) {
 		rows = rows[:limit]
-		page.NextCursor = pagination.Cursor{Filter: pagination.FilterHash(parts...), ID: rows[len(rows)-1].ID}.Encode()
+		data.NextCursor = pagination.Cursor{Filter: pagination.FilterHash(parts...), ID: rows[len(rows)-1].ID}.Encode()
 	}
 	for _, row := range rows {
-		page.Items = append(page.Items, toView(row))
+		data.Items = append(data.Items, row.toView())
 	}
-	return page, nil
+	return data, nil
 }
 
-func (s *service) Update(ctx context.Context, p auth.Principal, id uuid.UUID, input ParamUpdate) (ParamView, error) {
+func (s *service) Update(ctx context.Context, p auth.Principal, id uuid.UUID, input ParamUpdate) (view ParamView, err error) {
+	defer func() { s.logOperation(ctx, "update", err) }()
+
 	current, err := s.Get(ctx, p, id)
 	if err != nil {
 		return ParamView{}, err
@@ -123,21 +129,50 @@ func (s *service) Update(ctx context.Context, p auth.Principal, id uuid.UUID, in
 	if !validStatus(status) {
 		return ParamView{}, validation("AI parameter status is not recognised.")
 	}
-	row, err := s.repo.UpdateAIParamMetadata(ctx, UpdateAIParamMetadataParams{
-		StorageKey: input.StorageKey, Sha256: input.Sha256, Kid: input.Kid, Signature: input.Signature,
-		Status: status, ReleasedAt: input.ReleasedAt, Notes: input.Notes, ID: id,
-	})
+	row, err := s.repo.UpdateAIParamMetadata(ctx, input.toUpdateAIParamMetadataParams(id))
 	if err != nil {
 		return ParamView{}, err
 	}
-	return toView(row), nil
+	return row.toView(), nil
 }
 
-func (s *service) Delete(ctx context.Context, p auth.Principal, id uuid.UUID) error {
+func (s *service) Delete(ctx context.Context, p auth.Principal, id uuid.UUID) (err error) {
+	defer func() { s.logOperation(ctx, "delete", err) }()
+
 	if _, err := s.Get(ctx, p, id); err != nil {
 		return err
 	}
 	return s.repo.SoftDeleteAIParam(ctx, id)
+}
+
+func (s *service) validateBeforeCreate(p auth.Principal, input ParamInput) error {
+	if !p.CanAccessTenant(input.TenantID) {
+		return apperrors.Forbidden("AI parameter access is not permitted.")
+	}
+	if strings.TrimSpace(input.Kind) == "" || input.ParamVersion < 1 {
+		return validation("kind and param_version are required.")
+	}
+	if input.Status == "" {
+		input.Status = "draft"
+	}
+	if !validStatus(input.Status) {
+		return validation("AI parameter status is not recognised.")
+	}
+	return nil
+}
+
+func (s *service) logOperation(ctx context.Context, operation string, err error) {
+	outcome := "success"
+	if err != nil {
+		outcome = "failure"
+	}
+	attrs := []any{"operation", operation, "outcome", outcome}
+	if err != nil {
+		attrs = append(attrs, "error", err)
+		s.logger.ErrorContext(ctx, "AI parameter operation", attrs...)
+		return
+	}
+	s.logger.InfoContext(ctx, "AI parameter operation", attrs...)
 }
 
 func validStatus(status string) bool {
@@ -146,22 +181,6 @@ func validStatus(status string) bool {
 		return true
 	}
 	return false
-}
-
-func toView(row AiParam) ParamView {
-	return ParamView{
-		ID: row.ID, TenantID: row.TenantID, Kind: row.Kind, ParamVersion: row.ParamVersion,
-		StorageKey: row.StorageKey, Sha256: row.Sha256, Kid: row.Kid, Signature: row.Signature,
-		Status: row.Status, ReleasedAt: row.ReleasedAt, Notes: row.Notes,
-		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt, Version: row.Version,
-	}
-}
-
-func nullUUID(id uuid.UUID) uuid.NullUUID {
-	if id == uuid.Nil {
-		return uuid.NullUUID{}
-	}
-	return uuid.NullUUID{UUID: id, Valid: true}
 }
 
 func validation(message string) error {

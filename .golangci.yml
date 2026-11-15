@@ -7,7 +7,24 @@ linters:
   default: standard
   enable:
     - depguard
+    - revive
+    - gocritic
+    - misspell
+    - prealloc
+    - unparam
+    - funcorder
+    - nolintlint
   settings:
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+      allow-unused: false
     depguard:
       rules:
         no-app-or-cmd-imports-from-modules:
@@ -27,3 +44,8 @@ linters:
         - all
         - -S1016
         - -ST1000
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

@@ -16,7 +16,7 @@ import (
 	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres"
 	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/convert"
 	"github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sqlc"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
 const (

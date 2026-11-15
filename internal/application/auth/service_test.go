@@ -260,10 +260,7 @@ func newAuthFixture(t *testing.T, verifier *unitVerifier, store *fakeServiceStor
 	t.Helper()
 	clock := &unitClock{now: time.Date(2026, time.November, 5, 12, 0, 0, 0, time.UTC)}
 	signer := newTestSigner(t, "test-kid")
-	keys, err := newTestKeySet(t, "test-kid", signer)
-	if err != nil {
-		t.Fatalf("NewStaticKeySet: %v", err)
-	}
+	keys := newTestKeySet(t, "test-kid", signer)
 	limiter := &unitLimiter{}
 	if store == nil {
 		store = &fakeServiceStore{}

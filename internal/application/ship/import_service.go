@@ -12,12 +12,19 @@ import (
 
 	"github.com/ren0503/tycoon/internal/application/audit"
 	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
 const staleImportAfter = 10 * time.Minute
 
-func (s *service) UploadStructureImport(ctx context.Context, p auth.Principal, shipID uuid.UUID, fileName string, data []byte, idempotencyKey string) (ImportPreview, error) {
+func (s *service) UploadStructureImport(
+	ctx context.Context,
+	p auth.Principal,
+	shipID uuid.UUID,
+	fileName string,
+	data []byte,
+	idempotencyKey string,
+) (ImportPreview, error) {
 	if _, err := s.getShipScoped(ctx, p, shipID); err != nil {
 		return ImportPreview{}, importNotFound()
 	}
@@ -25,7 +32,9 @@ func (s *service) UploadStructureImport(ctx context.Context, p auth.Principal, s
 	fileSHA := hex.EncodeToString(digest[:])
 
 	if idempotencyKey != "" {
-		existing, err := s.repo.GetShipStructureImportByIdempotencyKey(ctx, GetShipStructureImportByIdempotencyKeyParams{ShipID: shipID, IdempotencyKey: &idempotencyKey})
+		existing, err := s.repo.GetShipStructureImportByIdempotencyKey(ctx, GetShipStructureImportByIdempotencyKeyParams{
+			ShipID: shipID, IdempotencyKey: &idempotencyKey,
+		})
 		if err == nil {
 			return s.replayImport(ctx, existing, fileSHA)
 		}
@@ -53,7 +62,9 @@ func (s *service) UploadStructureImport(ctx context.Context, p auth.Principal, s
 	})
 	if err != nil {
 		if idempotencyKey != "" && isIdempotencyConflict(err) {
-			existing, getErr := s.repo.GetShipStructureImportByIdempotencyKey(ctx, GetShipStructureImportByIdempotencyKeyParams{ShipID: shipID, IdempotencyKey: &idempotencyKey})
+			existing, getErr := s.repo.GetShipStructureImportByIdempotencyKey(ctx, GetShipStructureImportByIdempotencyKeyParams{
+				ShipID: shipID, IdempotencyKey: &idempotencyKey,
+			})
 			if getErr == nil {
 				return s.replayImport(ctx, existing, fileSHA)
 			}

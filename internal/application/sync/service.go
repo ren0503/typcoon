@@ -11,19 +11,72 @@ import (
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appship "github.com/ren0503/tycoon/internal/application/ship"
 	appvoyage "github.com/ren0503/tycoon/internal/application/voyage"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
-var (
-	hubRoles         = map[string]bool{"primary": true, "standby": true}
-	hubStatuses      = map[string]bool{"provisioning": true, "active": true, "retired": true, "revoked": true}
-	revocationTypes  = map[string]bool{"device": true, "staff": true, "boarding_pass": true, "partner_staff": true}
-	snapshotPhases   = map[string]bool{"prepare": true, "open_boarding": true, "finalize": true, "manual": true}
-	snapshotStatuses = map[string]bool{"building": true, "ready": true, "failed": true, "superseded": true}
-	jobTypes         = map[string]bool{"prepare_snapshot": true, "open_boarding": true, "finalize_manifest": true, "cutoff_check": true}
-	jobStatuses      = map[string]bool{"succeeded": true, "failed": true, "skipped": true}
-)
+func isHubRole(role string) bool {
+	switch role {
+	case "primary", "standby":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHubStatus(status string) bool {
+	switch status {
+	case "provisioning", "active", "retired", "revoked":
+		return true
+	default:
+		return false
+	}
+}
+
+func isRevocationType(subjectType string) bool {
+	switch subjectType {
+	case "device", "staff", "boarding_pass", "partner_staff":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSnapshotPhase(phase string) bool {
+	switch phase {
+	case "prepare", "open_boarding", "finalize", "manual":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSnapshotStatus(status string) bool {
+	switch status {
+	case "building", "ready", "failed", "superseded":
+		return true
+	default:
+		return false
+	}
+}
+
+func isJobType(jobType string) bool {
+	switch jobType {
+	case "prepare_snapshot", "open_boarding", "finalize_manifest", "cutoff_check":
+		return true
+	default:
+		return false
+	}
+}
+
+func isJobStatus(status string) bool {
+	switch status {
+	case "succeeded", "failed", "skipped":
+		return true
+	default:
+		return false
+	}
+}
 
 type service struct {
 	repo   Repository
@@ -36,23 +89,12 @@ func New(repo Repository, ships appship.Service, voyages appvoyage.Service) Serv
 	return &service{repo: repo, ships: ships, voyage: voyages}
 }
 
-func (s *service) requireShip(ctx context.Context, p auth.Principal, shipID uuid.UUID) error {
-	tenantID, err := s.ships.TenantID(ctx, shipID)
-	if err != nil {
-		return err
-	}
-	if !p.CanAccessTenant(tenantID) || !p.CanAccessShip(shipID) {
-		return apperrors.Forbidden("Ship is not accessible.")
-	}
-	return nil
-}
-
 func (s *service) ProvisionHubDevice(ctx context.Context, p auth.Principal, input HubDeviceInput) (HubDeviceView, error) {
 	if err := s.requireShip(ctx, p, input.ShipID); err != nil {
 		return HubDeviceView{}, err
 	}
 	name := strings.TrimSpace(input.Name)
-	if name == "" || !hubRoles[input.Role] {
+	if name == "" || !isHubRole(input.Role) {
 		return HubDeviceView{}, validation("Hub device name and a recognised role are required.")
 	}
 	id, err := uuid.NewV7()
@@ -107,7 +149,7 @@ func (s *service) SetHubDeviceStatus(ctx context.Context, p auth.Principal, id u
 	if err != nil {
 		return HubDeviceView{}, err
 	}
-	if !hubStatuses[status] || epoch < 1 {
+	if !isHubStatus(status) || epoch < 1 {
 		return HubDeviceView{}, validation("Hub status and epoch are invalid.")
 	}
 	row, err := s.repo.UpdateHubDeviceStatus(ctx, UpdateHubDeviceStatusParams{
@@ -186,7 +228,7 @@ func (s *service) CreateRevocation(ctx context.Context, p auth.Principal, input 
 	if err := s.requireShip(ctx, p, input.ShipID); err != nil {
 		return Revocation{}, err
 	}
-	if !revocationTypes[input.SubjectType] || strings.TrimSpace(input.SubjectID) == "" {
+	if !isRevocationType(input.SubjectType) || strings.TrimSpace(input.SubjectID) == "" {
 		return Revocation{}, validation("Revocation subject type and subject id are required.")
 	}
 	id, err := uuid.NewV7()
@@ -238,14 +280,14 @@ func (s *service) RecordSnapshot(ctx context.Context, p auth.Principal, input Sn
 	if err := s.requireShip(ctx, p, input.ShipID); err != nil {
 		return SnapshotView{}, err
 	}
-	if !snapshotPhases[input.Phase] {
+	if !isSnapshotPhase(input.Phase) {
 		return SnapshotView{}, validation("Snapshot phase is not recognised.")
 	}
 	status := input.Status
 	if status == "" {
 		status = "building"
 	}
-	if !snapshotStatuses[status] {
+	if !isSnapshotStatus(status) {
 		return SnapshotView{}, validation("Snapshot status is not recognised.")
 	}
 	if strings.TrimSpace(input.StorageKey) == "" || strings.TrimSpace(input.Sha256) == "" ||
@@ -309,7 +351,7 @@ func (s *service) ClaimJobRun(ctx context.Context, p auth.Principal, input JobRu
 	if err := s.requireShip(ctx, p, v.ShipID); err != nil {
 		return JobRun{}, err
 	}
-	if !jobTypes[input.JobType] || input.ScheduleVersion < 1 {
+	if !isJobType(input.JobType) || input.ScheduleVersion < 1 {
 		return JobRun{}, validation("Job type and a positive schedule version are required.")
 	}
 	id, err := uuid.NewV7()
@@ -323,7 +365,7 @@ func (s *service) ClaimJobRun(ctx context.Context, p auth.Principal, input JobRu
 }
 
 func (s *service) FinishJobRun(ctx context.Context, p auth.Principal, id uuid.UUID, status string, jobError *string) (JobRun, error) {
-	if !jobStatuses[status] {
+	if !isJobStatus(status) {
 		return JobRun{}, validation("Job status is not recognised.")
 	}
 	row, err := s.repo.FinishJobRun(ctx, FinishJobRunParams{Status: status, Error: trimPtr(jobError), ID: id})
@@ -421,6 +463,17 @@ func (s *service) ChangeLog(ctx context.Context, p auth.Principal, shipID uuid.U
 	}
 	rows, err := s.repo.ListChangeLog(ctx, ListChangeLogParams{ShipID: shipID, AfterSeq: afterSeq, PageLimit: limit})
 	return rows, err
+}
+
+func (s *service) requireShip(ctx context.Context, p auth.Principal, shipID uuid.UUID) error {
+	tenantID, err := s.ships.TenantID(ctx, shipID)
+	if err != nil {
+		return err
+	}
+	if !p.CanAccessTenant(tenantID) || !p.CanAccessShip(shipID) {
+		return apperrors.Forbidden("Ship is not accessible.")
+	}
+	return nil
 }
 
 func hubView(row HubDevice) HubDeviceView {

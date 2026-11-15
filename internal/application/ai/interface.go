@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// Repository persists AI parameter metadata.
 type Repository interface {
 	CreateAIParam(context.Context, CreateAIParamParams) (AiParam, error)
 	GetAIParam(context.Context, uuid.UUID) (AiParam, error)

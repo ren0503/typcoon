@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ren0503/tycoon/internal/platform/helpers"
 )
 
 type Booking struct {
@@ -111,4 +112,35 @@ type ListServiceBookingsParams struct {
 type GetServiceBookingByIdempotencyParams struct {
 	BookingID      uuid.UUID `json:"booking_id"`
 	IdempotencyKey *string   `json:"idempotency_key"`
+}
+
+func (b Booking) IsSame(input BookingInput) bool {
+	if b.ShipID != input.ShipID || b.VoyageID != input.VoyageID {
+		return false
+	}
+	if b.RoomID != helpers.OptionalUUID(input.RoomID) {
+		return false
+	}
+	if b.EmbarkSeq != input.EmbarkSeq || b.DisembarkSeq != input.DisembarkSeq {
+		return false
+	}
+	if !helpers.SameTime(b.ExpiresAt, input.ExpiresAt) {
+		return false
+	}
+
+	return helpers.SameString(b.SpecialRequests, input.SpecialRequests)
+}
+
+func (sb ServiceBooking) IsSame(input ServiceBookingInput) bool {
+	if sb.PartnerServiceID != input.PartnerServiceID || sb.Quantity != input.Quantity {
+		return false
+	}
+	if sb.SlotID != helpers.OptionalUUID(input.SlotID) || sb.GuestID != helpers.OptionalUUID(input.GuestID) {
+		return false
+	}
+	if !helpers.SameInt64(sb.PriceCents, input.PriceCents) {
+		return false
+	}
+
+	return true
 }

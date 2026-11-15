@@ -9,17 +9,54 @@ import (
 
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appship "github.com/ren0503/tycoon/internal/application/ship"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
-var (
-	businessTypes    = map[string]bool{"entertainment": true, "retail": true, "food_beverage": true, "spa": true, "excursion": true, "other": true}
-	partnerStatuses  = map[string]bool{"pending": true, "active": true, "suspended": true, "terminated": true}
-	contractStatus   = map[string]bool{"draft": true, "active": true, "expired": true, "terminated": true}
-	partnerStaffStat = map[string]bool{"active": true, "inactive": true}
-	slotStatuses     = map[string]bool{"requested": true, "approved": true, "rejected": true, "cancelled": true}
-)
+func isBusinessType(businessType string) bool {
+	switch businessType {
+	case "entertainment", "retail", "food_beverage", "spa", "excursion", "other":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPartnerStatus(status string) bool {
+	switch status {
+	case "pending", "active", "suspended", "terminated":
+		return true
+	default:
+		return false
+	}
+}
+
+func isContractStatus(status string) bool {
+	switch status {
+	case "draft", "active", "expired", "terminated":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPartnerStaffStatus(status string) bool {
+	switch status {
+	case "active", "inactive":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSlotStatus(status string) bool {
+	switch status {
+	case "requested", "approved", "rejected", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
 
 type service struct {
 	repo  Repository
@@ -36,7 +73,7 @@ func (s *service) CreatePartner(ctx context.Context, p auth.Principal, input Par
 		return Partner{}, err
 	}
 	name := strings.TrimSpace(input.Name)
-	if name == "" || !businessTypes[input.BusinessType] {
+	if name == "" || !isBusinessType(input.BusinessType) {
 		return Partner{}, validation("Partner name and a recognised business type are required.")
 	}
 	id, err := uuid.NewV7()
@@ -94,7 +131,7 @@ func (s *service) UpdatePartner(ctx context.Context, p auth.Principal, id uuid.U
 		current.ContactPhone = trimPtr(input.ContactPhone)
 	}
 	if input.Status != nil {
-		if !partnerStatuses[*input.Status] {
+		if !isPartnerStatus(*input.Status) {
 			return Partner{}, validation("Partner status is not recognised.")
 		}
 		current.Status = *input.Status
@@ -147,7 +184,7 @@ func (s *service) CreateContract(ctx context.Context, p auth.Principal, partnerI
 	if input.Status == "" {
 		input.Status = "draft"
 	}
-	if !contractStatus[input.Status] {
+	if !isContractStatus(input.Status) {
 		return PartnerContract{}, validation("Contract status is not recognised.")
 	}
 	id, err := uuid.NewV7()
@@ -225,7 +262,7 @@ func (s *service) UpdateContract(ctx context.Context, p auth.Principal, id uuid.
 		current.TermsStorageKey = trimPtr(input.TermsStorageKey)
 	}
 	if input.Status != nil {
-		if !contractStatus[*input.Status] {
+		if !isContractStatus(*input.Status) {
 			return PartnerContract{}, validation("Contract status is not recognised.")
 		}
 		current.Status = *input.Status
@@ -261,7 +298,7 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, partnerID u
 	if input.Status == "" {
 		input.Status = "active"
 	}
-	if !partnerStaffStat[input.Status] {
+	if !isPartnerStaffStatus(input.Status) {
 		return PartnerStaff{}, validation("Partner staff status is not recognised.")
 	}
 	if err := dateRange(input.ValidFrom, input.ValidTo); err != nil {
@@ -333,7 +370,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 		current.Phone = trimPtr(input.Phone)
 	}
 	if input.Status != nil {
-		if !partnerStaffStat[*input.Status] {
+		if !isPartnerStaffStatus(*input.Status) {
 			return PartnerStaff{}, validation("Partner staff status is not recognised.")
 		}
 		current.Status = *input.Status
@@ -543,7 +580,7 @@ func (s *service) UpdateSlot(ctx context.Context, p auth.Principal, id uuid.UUID
 		current.DecisionNote = trimPtr(input.DecisionNote)
 	}
 	if input.Status != nil {
-		if !slotStatuses[*input.Status] {
+		if !isSlotStatus(*input.Status) {
 			return PartnerSlot{}, validation("Slot status is not recognised.")
 		}
 		if *input.Status == "approved" || *input.Status == "rejected" {
@@ -630,8 +667,6 @@ func trimPtr(value *string) *string {
 func validation(message string) error {
 	return apperrors.Validation(apperrors.CodeValidationFailed, message)
 }
-
-var _ = time.Now
 
 func nullUUID(id uuid.UUID) uuid.NullUUID {
 	if id == uuid.Nil {

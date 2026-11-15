@@ -14,7 +14,7 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 
 	appauth "github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/infrastructure/aws"
+	awsconfig "github.com/ren0503/tycoon/internal/infrastructure/aws"
 	redisadapter "github.com/ren0503/tycoon/internal/infrastructure/cache/redis"
 	"github.com/ren0503/tycoon/internal/infrastructure/health"
 	"github.com/ren0503/tycoon/internal/infrastructure/identity/firebase"

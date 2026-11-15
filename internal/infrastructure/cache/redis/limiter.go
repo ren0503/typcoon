@@ -47,7 +47,7 @@ func (l *RateLimiter) Allow(ctx context.Context, key string, limit int, window t
 	if err != nil {
 		return appauth.RateLimitDecision{}, fmt.Errorf("%w: %v", appauth.ErrRateLimiterUnavailable, err)
 	}
-	values, ok := result.([]interface{})
+	values, ok := result.([]any)
 	if !ok || len(values) != 2 {
 		return appauth.RateLimitDecision{}, fmt.Errorf("%w: unexpected Redis result", appauth.ErrRateLimiterUnavailable)
 	}

@@ -102,7 +102,7 @@ func classify(pkg string) layer {
 	return layerUnknown
 }
 
-func allowedImport(importer layer, pkg string, target layer, imported string) bool {
+func allowedImport(importer layer, pkg string, target layer, _ string) bool {
 	switch importer {
 	case layerApplication:
 		return target == layerApplication || target == layerPlatform

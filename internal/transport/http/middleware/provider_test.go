@@ -33,7 +33,7 @@ func (f *fakeAccountLookup) ResolveActiveAdmin(context.Context, uuid.UUID) (appa
 }
 
 func TestAccessTokenProviderAuthenticatesActiveAccount(t *testing.T) {
-	issuer, _ := newTokenIssuer(t)
+	issuer := newTokenIssuer(t)
 	accountID := uuid.New()
 	raw, _, err := issuer.Issue(context.Background(), accountID, appauth.ClientGuestMobile)
 	if err != nil {
@@ -55,7 +55,7 @@ func TestAccessTokenProviderAuthenticatesActiveAccount(t *testing.T) {
 }
 
 func TestAccessTokenProviderRejectsMissingInvalidAndInactive(t *testing.T) {
-	issuer, _ := newTokenIssuer(t)
+	issuer := newTokenIssuer(t)
 	accountID := uuid.New()
 	raw, _, err := issuer.Issue(context.Background(), accountID, appauth.ClientGuestMobile)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestAccessTokenProviderRejectsMissingInvalidAndInactive(t *testing.T) {
 }
 
 func TestAccessTokenProviderMapsFleetGrantFromBackend(t *testing.T) {
-	issuer, _ := newTokenIssuer(t)
+	issuer := newTokenIssuer(t)
 	accountID := uuid.New()
 	adminID := uuid.New()
 	tenantID := uuid.New()
@@ -135,7 +135,7 @@ func TestAccessTokenProviderMapsFleetGrantFromBackend(t *testing.T) {
 }
 
 func TestAccessTokenProviderGuestCannotElevateToFleet(t *testing.T) {
-	issuer, _ := newTokenIssuer(t)
+	issuer := newTokenIssuer(t)
 	accountID := uuid.New()
 	raw, _, err := issuer.Issue(context.Background(), accountID, appauth.ClientGuestMobile)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestAccessTokenProviderGuestCannotElevateToFleet(t *testing.T) {
 
 func TestAccessTokenProviderFleetRequiresActiveGrant(t *testing.T) {
 	for _, adminErr := range []error{appauth.ErrAdminGrantNotFound, errors.New("admin lookup failed")} {
-		issuer, _ := newTokenIssuer(t)
+		issuer := newTokenIssuer(t)
 		accountID := uuid.New()
 		raw, _, err := issuer.Issue(context.Background(), accountID, appauth.ClientFleetConsole)
 		if err != nil {
@@ -215,7 +215,7 @@ type testClock struct{}
 
 func (testClock) Now() time.Time { return time.Date(2026, time.November, 5, 12, 0, 0, 0, time.UTC) }
 
-func newTokenIssuer(t *testing.T) (*appauth.AccessTokenIssuer, testClock) {
+func newTokenIssuer(t *testing.T) *appauth.AccessTokenIssuer {
 	t.Helper()
 	signer, err := local.NewRandomLocalSigner("test-kid")
 	if err != nil {
@@ -230,5 +230,5 @@ func newTokenIssuer(t *testing.T) (*appauth.AccessTokenIssuer, testClock) {
 	if err != nil {
 		t.Fatalf("NewAccessTokenIssuer: %v", err)
 	}
-	return issuer, clock
+	return issuer
 }

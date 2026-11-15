@@ -11,7 +11,7 @@ import (
 	"github.com/ren0503/tycoon/internal/application/audit"
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appbooking "github.com/ren0503/tycoon/internal/application/booking"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
@@ -48,7 +48,7 @@ func (s *service) Create(ctx context.Context, p auth.Principal, bookingID uuid.U
 	if err != nil {
 		return View{}, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	row, err := tx.CreateGuest(ctx, CreateGuestParams{
 		ID: id, BookingID: bookingID, FullName: strings.TrimSpace(input.FullName),
 		DateOfBirth: input.DateOfBirth, Nationality: trimPtr(input.Nationality),
@@ -138,7 +138,7 @@ func (s *service) Update(ctx context.Context, p auth.Principal, id uuid.UUID, in
 	if err != nil {
 		return View{}, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	row, err := tx.UpdateGuest(ctx, UpdateGuestParams{
 		FullName: current.FullName, DateOfBirth: current.DateOfBirth, Nationality: current.Nationality,
 		DocumentType: current.DocumentType, DocumentEnc: current.DocumentEnc, DocumentKeyID: current.DocumentKeyID,
@@ -172,7 +172,7 @@ func (s *service) Delete(ctx context.Context, p auth.Principal, id uuid.UUID) er
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	if err := tx.SoftDeleteGuest(ctx, id); err != nil {
 		return err
 	}
@@ -182,7 +182,13 @@ func (s *service) Delete(ctx context.Context, p auth.Principal, id uuid.UUID) er
 	return tx.Commit(ctx)
 }
 
-func (s *service) IssueBoardingPass(ctx context.Context, p auth.Principal, bookingID uuid.UUID, guestID *uuid.UUID, expiresAt *time.Time) (BoardingPassView, error) {
+func (s *service) IssueBoardingPass(
+	ctx context.Context,
+	p auth.Principal,
+	bookingID uuid.UUID,
+	guestID *uuid.UUID,
+	expiresAt *time.Time,
+) (BoardingPassView, error) {
 	bookingRow, err := s.bookings.GetBooking(ctx, p, bookingID)
 	if err != nil {
 		return BoardingPassView{}, err
@@ -215,7 +221,7 @@ func (s *service) IssueBoardingPass(ctx context.Context, p auth.Principal, booki
 	if err != nil {
 		return BoardingPassView{}, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	row, err := tx.CreateBoardingPass(ctx, CreateBoardingPassParams{
 		ID: id, BookingID: bookingID, GuestID: optionalUUID(guestID), Jti: jti, ExpiresAt: expiry,
 	})
@@ -244,7 +250,13 @@ func (s *service) GetBoardingPass(ctx context.Context, p auth.Principal, id uuid
 	return toBoardingPassView(row), nil
 }
 
-func (s *service) ListBoardingPasses(ctx context.Context, p auth.Principal, bookingID uuid.UUID, rawCursor string, limit int32) (Page[BoardingPassView], error) {
+func (s *service) ListBoardingPasses(
+	ctx context.Context,
+	p auth.Principal,
+	bookingID uuid.UUID,
+	rawCursor string,
+	limit int32,
+) (Page[BoardingPassView], error) {
 	if _, err := s.bookings.GetBooking(ctx, p, bookingID); err != nil {
 		return Page[BoardingPassView]{}, err
 	}
@@ -283,7 +295,7 @@ func (s *service) RevokeBoardingPass(ctx context.Context, p auth.Principal, id u
 	if err != nil {
 		return BoardingPassView{}, err
 	}
-	defer tx.Rollback(ctx) //nolint:errcheck
+	defer rollback(ctx, tx)
 	row, err := tx.RevokeBoardingPass(ctx, id)
 	if err != nil {
 		return BoardingPassView{}, err
@@ -299,7 +311,18 @@ func (s *service) RevokeBoardingPass(ctx context.Context, p auth.Principal, id u
 	return toBoardingPassView(row), nil
 }
 
-func (s *service) appendAudit(ctx context.Context, tx Tx, p auth.Principal, action, entity string, entityID, shipID, voyageID uuid.UUID, details map[string]any) error {
+func rollback(ctx context.Context, tx Tx) {
+	_ = tx.Rollback(ctx)
+}
+
+func (s *service) appendAudit(
+	ctx context.Context,
+	tx Tx,
+	p auth.Principal,
+	action, entity string,
+	entityID, shipID, voyageID uuid.UUID,
+	details map[string]any,
+) error {
 	payload := json.RawMessage(`{}`)
 	if details != nil {
 		encoded, err := json.Marshal(details)

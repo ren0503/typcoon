@@ -4,10 +4,11 @@ package voyage_test
 
 import (
 	"context"
-	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
-	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 	"testing"
 	"time"
+
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	voyagerepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/voyage"
 
 	"github.com/ren0503/tycoon/internal/application/ship"
 	"github.com/ren0503/tycoon/internal/application/voyage"

@@ -5,10 +5,11 @@ package ship_test
 import (
 	"context"
 	"errors"
-	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
-	syncrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sync"
 	"testing"
 	"time"
+
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
+	syncrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/sync"
 
 	appaudit "github.com/ren0503/tycoon/internal/application/audit"
 	"github.com/ren0503/tycoon/internal/application/ship"

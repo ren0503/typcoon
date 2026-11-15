@@ -21,3 +21,18 @@ type RateLimiter interface {
 	Allow(ctx context.Context, key string, limit int, window time.Duration) (RateLimitDecision, error)
 	Close() error
 }
+
+// RateLimitedError carries the stable retry indication for a 429 response.
+type RateLimitedError struct {
+	RetryAfter time.Duration
+}
+
+// Error implements error without exposing limiter internals.
+func (e *RateLimitedError) Error() string {
+	return "authentication rate limited"
+}
+
+// Is allows errors.Is(err, ErrRateLimited).
+func (e *RateLimitedError) Is(target error) bool {
+	return target == ErrRateLimited
+}

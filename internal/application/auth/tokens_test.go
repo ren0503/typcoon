@@ -21,10 +21,7 @@ func (c *fixedClock) Now() time.Time {
 func newTokenIssuer(t *testing.T) (*AccessTokenIssuer, *fixedClock) {
 	t.Helper()
 	signer := newTestSigner(t, "token-test")
-	keys, err := newTestKeySet(t, "token-test", signer)
-	if err != nil {
-		t.Fatalf("NewStaticKeySet: %v", err)
-	}
+	keys := newTestKeySet(t, "token-test", signer)
 	clock := &fixedClock{now: time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)}
 	issuer, err := NewAccessTokenIssuer(keys, "https://issuer.example", "tycoon-api", 15*time.Minute, time.Minute, clock)
 	if err != nil {
@@ -61,10 +58,7 @@ func TestAccessTokenRejectsInvalidClientAndLongTTL(t *testing.T) {
 		t.Fatal("expected invalid client error")
 	}
 	signer := newTestSigner(t, "token-test")
-	keys, err := newTestKeySet(t, "token-test", signer)
-	if err != nil {
-		t.Fatalf("NewStaticKeySet: %v", err)
-	}
+	keys := newTestKeySet(t, "token-test", signer)
 	if _, err := NewAccessTokenIssuer(keys, "issuer", "audience", MaxAccessTokenTTL+time.Second, time.Minute, nil); err == nil {
 		t.Fatal("expected TTL rejection")
 	}

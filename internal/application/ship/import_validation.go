@@ -22,12 +22,6 @@ const (
 	maxRoomCapacity      int64 = 32767
 )
 
-var (
-	deckColumns = []string{"level", "name"}
-	areaColumns = []string{"deck_level", "name", "area_type", "capacity", "layout"}
-	roomColumns = []string{"deck_level", "number", "room_type", "capacity", "is_bookable", "layout"}
-)
-
 type workbookValidation struct {
 	Counts   ImportCounts
 	Payload  ImportPayload
@@ -38,6 +32,16 @@ type workbookValidation struct {
 type sheetRow struct {
 	row      int
 	findings []ValidationFinding
+}
+
+func deckColumnValues() []string { return []string{"level", "name"} }
+
+func areaColumnValues() []string {
+	return []string{"deck_level", "name", "area_type", "capacity", "layout"}
+}
+
+func roomColumnValues() []string {
+	return []string{"deck_level", "number", "room_type", "capacity", "is_bookable", "layout"}
 }
 
 func (r *sheetRow) add(sheet, column, code, message string) {
@@ -137,36 +141,36 @@ func validateWorkbook(data []byte, fileName string, existingDeckLevels map[int32
 
 func checkWorkbookFile(data []byte, fileName string) []ValidationFinding {
 	var findings []ValidationFinding
-	add := func(sheet, code, message string) {
-		findings = append(findings, ValidationFinding{Sheet: sheet, Code: code, Message: message})
+	add := func(code, message string) {
+		findings = append(findings, ValidationFinding{Code: code, Message: message})
 	}
 	if int64(len(data)) > maxWorkbookBytes {
-		add("", "file_too_large", "The uploaded workbook exceeds the 10 MiB limit.")
+		add("file_too_large", "The uploaded workbook exceeds the 10 MiB limit.")
 		return findings
 	}
 	if !strings.EqualFold(filepath.Ext(fileName), ".xlsx") {
-		add("", "unsupported_format", "Only .xlsx workbooks are supported.")
+		add("unsupported_format", "Only .xlsx workbooks are supported.")
 		return findings
 	}
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		add("", "unsupported_format", "The uploaded file is not an .xlsx workbook.")
+		add("unsupported_format", "The uploaded file is not an .xlsx workbook.")
 		return findings
 	}
 	var total uint64
 	for _, entry := range reader.File {
 		lower := strings.ToLower(entry.Name)
 		if strings.HasSuffix(lower, "vbaproject.bin") {
-			add("", "macro_enabled", "Macro-enabled workbooks are not supported.")
+			add("macro_enabled", "Macro-enabled workbooks are not supported.")
 			return findings
 		}
 		if entry.UncompressedSize64 > maxArchiveEntryBytes {
-			add("", "archive_too_large", "The workbook archive expands beyond the safety limit.")
+			add("archive_too_large", "The workbook archive expands beyond the safety limit.")
 			return findings
 		}
 		total += entry.UncompressedSize64
 		if total > maxArchiveBytes {
-			add("", "archive_too_large", "The workbook archive expands beyond the safety limit.")
+			add("archive_too_large", "The workbook archive expands beyond the safety limit.")
 			return findings
 		}
 	}
@@ -233,7 +237,7 @@ type roomCandidate struct {
 }
 
 func parseDeckRows(file *excelize.File, sheet string, all *[]ValidationFinding) []*deckCandidate {
-	rows, columns, ok := readSheet(file, sheet, deckColumns, all)
+	rows, columns, ok := readSheet(file, sheet, []string{"level", "name"}, all)
 	if !ok {
 		return nil
 	}
@@ -259,7 +263,7 @@ func parseDeckRows(file *excelize.File, sheet string, all *[]ValidationFinding) 
 }
 
 func parseAreaRows(file *excelize.File, sheet string, all *[]ValidationFinding) []*areaCandidate {
-	rows, columns, ok := readSheet(file, sheet, areaColumns, all)
+	rows, columns, ok := readSheet(file, sheet, []string{"deck_level", "name", "area_type", "capacity", "layout"}, all)
 	if !ok {
 		return nil
 	}
@@ -271,7 +275,7 @@ func parseAreaRows(file *excelize.File, sheet string, all *[]ValidationFinding) 
 		candidate.areaType = strings.TrimSpace(cell(row.cells, columns, "area_type"))
 		if candidate.areaType == "" {
 			candidate.add("Areas", "area_type", "required", "Area type is required.")
-		} else if !areaTypes[candidate.areaType] {
+		} else if !isAreaType(candidate.areaType) {
 			candidate.add("Areas", "area_type", "invalid_enum", "Area type is not recognised.")
 		}
 		if raw := strings.TrimSpace(cell(row.cells, columns, "capacity")); raw != "" {
@@ -290,7 +294,7 @@ func parseAreaRows(file *excelize.File, sheet string, all *[]ValidationFinding) 
 }
 
 func parseRoomRows(file *excelize.File, sheet string, all *[]ValidationFinding) []*roomCandidate {
-	rows, columns, ok := readSheet(file, sheet, roomColumns, all)
+	rows, columns, ok := readSheet(file, sheet, []string{"deck_level", "number", "room_type", "capacity", "is_bookable", "layout"}, all)
 	if !ok {
 		return nil
 	}
@@ -302,7 +306,7 @@ func parseRoomRows(file *excelize.File, sheet string, all *[]ValidationFinding) 
 		candidate.roomType = strings.TrimSpace(cell(row.cells, columns, "room_type"))
 		if candidate.roomType == "" {
 			candidate.add("Rooms", "room_type", "required", "Room type is required.")
-		} else if !roomTypes[candidate.roomType] {
+		} else if !isRoomType(candidate.roomType) {
 			candidate.add("Rooms", "room_type", "invalid_enum", "Room type is not recognised.")
 		}
 		rawCapacity := strings.TrimSpace(cell(row.cells, columns, "capacity"))

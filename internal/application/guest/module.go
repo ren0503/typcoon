@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
 // DocumentCipher seals and validates guest document ciphertext. Implementations

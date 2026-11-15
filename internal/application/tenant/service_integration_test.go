@@ -4,9 +4,10 @@ package tenant_test
 
 import (
 	"context"
-	tenantrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/tenant"
 	"testing"
 	"time"
+
+	tenantrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/tenant"
 
 	"github.com/google/uuid"
 

@@ -8,19 +8,24 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
 
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
 const maxBodyBytes = 1 << 20
 
-var validate = validator.New(validator.WithRequiredStructEnabled())
+func newValidator() *validator.Validate {
+	return validator.New(validator.WithRequiredStructEnabled())
+}
+
+var validate = sync.OnceValue(newValidator)
 
 type errorEnvelope struct {
 	Error errorBody `json:"error"`
@@ -32,21 +37,25 @@ type errorBody struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
+// PageEnvelope is the cursor-paginated response envelope.
 type PageEnvelope[T any] struct {
 	Data []T  `json:"data"`
 	Meta Meta `json:"meta"`
 }
 
+// Meta carries pagination metadata.
 type Meta struct {
 	NextCursor *string `json:"next_cursor"`
 }
 
+// WriteJSON writes a JSON response with the given status code.
 func WriteJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
 
+// WriteError writes the canonical error envelope for err.
 func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	appErr, ok := apperrors.As(err)
 	if !ok {
@@ -59,6 +68,7 @@ func WriteError(w http.ResponseWriter, r *http.Request, err error) {
 	}})
 }
 
+// Decode decodes a JSON request body into dst.
 func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
@@ -69,7 +79,7 @@ func Decode(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return apperrors.BadRequest(apperrors.CodeValidationFailed, "Request body must contain a single JSON object.")
 	}
-	if err := validate.Struct(dst); err != nil {
+	if err := validate().Struct(dst); err != nil {
 		return apperrors.Validation(apperrors.CodeValidationFailed, validationMessage(err))
 	}
 	return nil
@@ -200,6 +210,7 @@ func SetNoStore(w http.ResponseWriter) {
 	w.Header().Set("Pragma", "no-cache")
 }
 
+// ClientIP returns the best-effort client address for a request.
 func ClientIP(r *http.Request) string {
 	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
 		return ip

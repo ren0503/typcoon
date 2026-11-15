@@ -4,10 +4,11 @@ package partner_test
 
 import (
 	"context"
-	partnerrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/partner"
-	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
 	"testing"
 	"time"
+
+	partnerrepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/partner"
+	shiprepo "github.com/ren0503/tycoon/internal/infrastructure/persistence/postgres/ship"
 
 	"github.com/ren0503/tycoon/internal/application/partner"
 	"github.com/ren0503/tycoon/internal/application/ship"

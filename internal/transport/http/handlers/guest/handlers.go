@@ -10,7 +10,7 @@ import (
 
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appguest "github.com/ren0503/tycoon/internal/application/guest"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 	"github.com/ren0503/tycoon/internal/transport/http/httpx"
 )
 

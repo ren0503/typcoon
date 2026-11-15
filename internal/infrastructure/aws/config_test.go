@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ren0503/tycoon/internal/infrastructure/aws"
+	awsconfig "github.com/ren0503/tycoon/internal/infrastructure/aws"
 	"github.com/ren0503/tycoon/internal/platform/config"
 )
 

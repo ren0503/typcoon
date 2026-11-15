@@ -1,8 +1,9 @@
 # Canonical entry points (identical locally and in CI):
+#   make validate         -> fmt-check + vet + lint + test + build + integration compile-check
 #   make test             -> unit + OpenAPI spec lint, no infrastructure required
 #   make test-integration -> build-tag integration suites via Testcontainers (Docker daemon required)
-# CI should run both targets; if Docker is unavailable, only `make test` can run and the
-# integration suites are compile-checked with:
+# CI should run `make validate` plus `make test-integration`; if Docker is unavailable,
+# `make validate` uses the integration compile-check instead:
 #   go test -tags=integration -run '^$' ./...
 
 SHELL := /bin/sh
@@ -19,13 +20,17 @@ include .env
 export
 endif
 
-.PHONY: fmt vet lint test test-integration run build sqlc \
+.PHONY: fmt fmt-check vet lint test test-integration validate run build sqlc \
 	migrate-up migrate-down migrate-status \
 	docker-build docker-up docker-down \
 	terraform-fmt terraform-validate
 
 fmt:
 	$(GO) fmt ./...
+
+fmt-check:
+	@test -z "$$(gofmt -l ./cmd ./internal)" || (echo "gofmt required for:"; gofmt -l ./cmd ./internal; exit 1)
+	$(GOLANGCI_LINT) fmt --diff ./...
 
 vet:
 	$(GO) vet ./...
@@ -38,6 +43,14 @@ test:
 
 test-integration:
 	$(GO) test -tags=integration ./...
+
+validate:
+	$(MAKE) fmt-check
+	$(MAKE) vet
+	$(MAKE) lint
+	$(MAKE) test
+	$(MAKE) build
+	$(GO) test -tags=integration -run '^$$' ./...
 
 run:
 	$(GO) run ./cmd/server

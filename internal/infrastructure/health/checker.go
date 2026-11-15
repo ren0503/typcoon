@@ -1,3 +1,4 @@
+// Package health provides readiness checks for external dependencies.
 package health
 
 import (

@@ -1,3 +1,4 @@
+// Package config loads and validates environment-driven application configuration.
 package config
 
 import (
@@ -107,16 +108,16 @@ type CORSConfig struct {
 	AllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" validate:"omitempty,dive,url"`
 }
 
-var validate = validator.New(validator.WithRequiredStructEnabled())
-
-func init() {
-	validate.RegisterTagNameFunc(func(field reflect.StructField) string {
+func newValidator() *validator.Validate {
+	v := validator.New(validator.WithRequiredStructEnabled())
+	v.RegisterTagNameFunc(func(field reflect.StructField) string {
 		name := strings.SplitN(field.Tag.Get("env"), ",", 2)[0]
 		if name == "" {
 			return field.Name
 		}
 		return name
 	})
+	return v
 }
 
 // Load reads configuration from process environment variables, applies defaults, and validates.
@@ -303,7 +304,7 @@ type rateLimitMinimum struct {
 
 // Validate checks required values, formats, ranges, and cross-field constraints.
 func (c *Config) Validate() error {
-	if err := validate.Struct(c); err != nil {
+	if err := newValidator().Struct(c); err != nil {
 		return formatValidationError(err)
 	}
 	if c.Database.MinConns > c.Database.MaxConns {

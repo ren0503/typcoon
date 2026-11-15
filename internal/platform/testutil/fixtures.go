@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ren0503/tycoon/internal/application/auth"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
 // Principal builds a tenant-wide principal with optional ship scope.

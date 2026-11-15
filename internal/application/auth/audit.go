@@ -6,9 +6,10 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/ren0503/tycoon/internal/application/audit"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
+// Auth audit action names recorded in the append-only audit log.
 const (
 	ActionIdentityProvisioned  = "auth.identity.provisioned"
 	ActionIdentityLinked       = "auth.identity.linked"
@@ -26,6 +27,7 @@ const (
 // AuthAuditReason is a closed set of non-sensitive rejection reasons.
 type AuthAuditReason string
 
+// Auth audit rejection reasons recorded with security events.
 const (
 	ReasonConflict        AuthAuditReason = "conflict"
 	ReasonLastIdentity    AuthAuditReason = "last_identity"

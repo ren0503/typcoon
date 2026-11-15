@@ -5,55 +5,31 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 
-	"github.com/ren0503/tycoon/internal/application/audit"
-	"github.com/ren0503/tycoon/internal/platform/errors"
+	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
 )
 
-const (
-	firebaseProvider = "firebase"
-	defaultLocale    = "en"
-	rateLimitWindow  = time.Minute
-)
-
-var (
-	// ErrAuthenticationFailed deliberately hides why an exchange credential failed.
-	ErrAuthenticationFailed = errors.New("authentication failed")
-	// ErrIdentityLinkRequired means a verified email already belongs to another account.
-	ErrIdentityLinkRequired = errors.New("identity link required")
-	// ErrClientForbidden means the requested session class is not authorized.
-	ErrClientForbidden = errors.New("auth client forbidden")
-	// ErrRateLimited indicates an authentication abuse limit was exceeded.
-	ErrRateLimited = errors.New("auth rate limited")
-	// ErrSessionUnavailable indicates signing or key material was unavailable.
-	ErrSessionUnavailable = errors.New("auth session issuer unavailable")
-	// ErrLastIdentity means unlinking would leave the account without a sign-in method.
-	ErrLastIdentity = errors.New("last sign-in identity")
-)
-
-// RateLimitedError carries the stable retry indication for a 429 response.
-type RateLimitedError struct {
-	RetryAfter time.Duration
-}
-
-// Error implements error without exposing limiter internals.
-func (e *RateLimitedError) Error() string {
-	return "authentication rate limited"
-}
-
-// Is allows errors.Is(err, ErrRateLimited).
-func (e *RateLimitedError) Is(target error) bool {
-	return target == ErrRateLimited
+type service struct {
+	store      Store
+	verifier   Verifier
+	keys       KeySet
+	limiter    RateLimiter
+	clock      Clock
+	logger     *slog.Logger
+	tokens     *AccessTokenIssuer
+	refreshTTL time.Duration
+	rateLimits RateLimits
 }
 
 func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session IssuedSession, err error) {
 	client := lo.CoalesceOrEmpty(input.Client, ClientGuestMobile)
-	defer func() { s.logOperation("exchange", client, err) }()
+	defer func() { s.logOperation(ctx, "exchange", client, err) }()
 
 	// Validate input and rate-limit.
 	if err := input.Valid(); err != nil {
@@ -75,12 +51,9 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 
 	// Resolve the account for the verified identity and requested client.
 	account, _, err := s.resolveAccount(ctx, verified, client)
-	if err != nil {
-		if client == ClientFleetConsole &&
-			(errors.Is(err, ErrClientForbidden) || errors.Is(err, ErrAuthenticationFailed)) {
-			if auditErr := s.auditAdminDenied(ctx, uuid.Nil, err); auditErr != nil {
-				return IssuedSession{}, auditErr
-			}
+	if isAdminAction(client, err) {
+		if auditErr := s.auditAdminDenied(ctx, uuid.Nil, err); auditErr != nil {
+			return IssuedSession{}, auditErr
 		}
 		return IssuedSession{}, err
 	}
@@ -100,18 +73,13 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
-	familyID := NewRefreshFamilyID()
-	entry, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionSessionIssued,
-		ActorType: ActorAccount,
-		ActorID:   account.ID.String(),
-		AccountID: account.ID,
-		Entity:    "session",
-		Details:   authAuditDetails{Client: client},
-	})
+
+	entry, err := buildIssueAuditEntry(account.ID, client)
 	if err != nil {
 		return IssuedSession{}, err
 	}
+
+	familyID := NewRefreshFamilyID()
 	err = s.store.CreateSession(ctx, CreateRefreshTokenParams{
 		ID:          uuid.New(),
 		SubjectType: "account",
@@ -139,7 +107,7 @@ func (s *service) Exchange(ctx context.Context, input ExchangeInput) (session Is
 
 func (s *service) Refresh(ctx context.Context, input RefreshInput) (session IssuedSession, err error) {
 	var client string
-	defer func() { s.logOperation("refresh", client, err) }()
+	defer func() { s.logOperation(ctx, "refresh", client, err) }()
 
 	rawToken := strings.TrimSpace(input.RefreshToken)
 	if rawToken == "" {
@@ -153,33 +121,33 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 		return IssuedSession{}, err
 	}
 
-	stored, err := s.store.GetRefreshTokenByHash(ctx, tokenHash)
+	storedToken, err := s.store.GetRefreshTokenByHash(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			return IssuedSession{}, ErrAuthenticationFailed
 		}
 		return IssuedSession{}, err
 	}
-	client = stored.Client
+	client = storedToken.Client
 	now := s.clock.Now().UTC()
-	if (stored.SubjectType != "account" || !ValidClient(stored.Client)) || !now.Before(stored.ExpiresAt) {
+	if isRefreshTokenInvalid(storedToken, now) {
 		return IssuedSession{}, ErrAuthenticationFailed
 	}
-	refreshedEntry, reuseEntry, err := buildRefreshAuditEntries(stored)
+	refreshedEntry, reuseEntry, err := buildRefreshAuditEntries(storedToken)
 	if err != nil {
 		return IssuedSession{}, err
 	}
 
-	if stored.UsedAt != nil || stored.RevokedAt != nil {
+	if isRefreshTokenUsed(storedToken) {
 		_, _, rotateErr := s.store.RotateRefreshToken(ctx, tokenHash, CreateRefreshTokenParams{}, refreshedEntry, reuseEntry, now)
 		return IssuedSession{}, mapRefreshError(rotateErr)
 	}
 
-	account, err := s.loadActiveAccount(ctx, stored.SubjectID)
+	account, err := s.loadActiveAccount(ctx, storedToken.SubjectID)
 	if err != nil {
 		return IssuedSession{}, err
 	}
-	if stored.Client == ClientFleetConsole {
+	if storedToken.Client == ClientFleetConsole {
 		if _, err := s.store.ResolveActiveAdmin(ctx, account.ID); err != nil {
 			if errors.Is(err, ErrAdminGrantNotFound) {
 				if auditErr := s.auditAdminDenied(ctx, account.ID, nil); auditErr != nil {
@@ -190,18 +158,22 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 			return IssuedSession{}, err
 		}
 	}
-	accessToken, accessExpiresAt, err := s.tokens.Issue(ctx, account.ID, stored.Client)
+
+	accessToken, accessExpiresAt, err := s.tokens.Issue(ctx, account.ID, storedToken.Client)
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
+
 	refreshToken, refreshHash, err := NewOpaqueRefreshToken()
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
+
 	refreshExpiresAt, err := RefreshTokenExpiry(now, s.refreshTTL)
 	if err != nil {
 		return IssuedSession{}, fmt.Errorf("%w: %v", ErrSessionUnavailable, err)
 	}
+
 	rotatedAccount, rotatedToken, err := s.store.RotateRefreshToken(ctx, tokenHash, CreateRefreshTokenParams{
 		ID:        uuid.New(),
 		TokenHash: refreshHash,
@@ -223,73 +195,28 @@ func (s *service) Refresh(ctx context.Context, input RefreshInput) (session Issu
 	}, nil
 }
 
-func buildRefreshAuditEntries(stored RefreshToken) (audit.Entry, audit.Entry, error) {
-	refreshed, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionSessionRefreshed,
-		ActorType: ActorAccount,
-		ActorID:   stored.SubjectID.String(),
-		AccountID: stored.SubjectID,
-		Entity:    "session",
-		Details:   authAuditDetails{Client: stored.Client},
-	})
-	if err != nil {
-		return audit.Entry{}, audit.Entry{}, err
-	}
-	reuse, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionSessionReuse,
-		ActorType: ActorAccount,
-		ActorID:   stored.SubjectID.String(),
-		AccountID: stored.SubjectID,
-		Entity:    "session",
-		Details:   authAuditDetails{Client: stored.Client},
-	})
-	if err != nil {
-		return audit.Entry{}, audit.Entry{}, err
-	}
-	return refreshed, reuse, nil
-}
-
-func mapRefreshError(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, ErrRefreshTokenReused) ||
-		errors.Is(err, ErrRefreshTokenNotFound) ||
-		errors.Is(err, ErrRefreshTokenInvalid) {
-		return ErrAuthenticationFailed
-	}
-	return err
-}
-
 func (s *service) Logout(ctx context.Context, refreshToken string) (err error) {
 	var client string
-	defer func() { s.logOperation("logout", client, err) }()
+	defer func() { s.logOperation(ctx, "logout", client, err) }()
 
 	rawToken := strings.TrimSpace(refreshToken)
 	if rawToken == "" {
 		return nil
 	}
 	hash := HashRefreshToken(rawToken)
-	stored, err := s.store.GetRefreshTokenByHash(ctx, hash)
+	storedToken, err := s.store.GetRefreshTokenByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, ErrRefreshTokenNotFound) {
 			return nil
 		}
 		return err
 	}
-	client = stored.Client
+	client = storedToken.Client
 	actorType := ActorAccount
-	if stored.SubjectType == "admin" {
+	if storedToken.SubjectType == "admin" {
 		actorType = ActorAdmin
 	}
-	entry, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionSessionRevoked,
-		ActorType: actorType,
-		ActorID:   stored.SubjectID.String(),
-		AccountID: stored.SubjectID,
-		Entity:    "session",
-		Details:   authAuditDetails{Client: stored.Client},
-	})
+	entry, err := buildLogoutAuditEntry(storedToken, actorType)
 	if err != nil {
 		return err
 	}
@@ -297,20 +224,15 @@ func (s *service) Logout(ctx context.Context, refreshToken string) (err error) {
 }
 
 func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) (err error) {
-	defer func() { s.logOperation("logout_all", "", err) }()
+	defer func() { s.logOperation(ctx, "logout_all", "", err) }()
+
 	if accountID == uuid.Nil {
 		return ErrAuthenticationFailed
 	}
 	if err := s.checkRate(ctx, "logout-all:account:"+accountID.String(), s.rateLimits.LogoutAllAccountPerMin); err != nil {
 		return err
 	}
-	entry, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionSessionRevokedAll,
-		ActorType: ActorAccount,
-		ActorID:   accountID.String(),
-		AccountID: accountID,
-		Entity:    "account",
-	})
+	entry, err := buildLogoutAllAuditEntry(accountID, ActorAccount)
 	if err != nil {
 		return err
 	}
@@ -318,13 +240,15 @@ func (s *service) LogoutAll(ctx context.Context, accountID uuid.UUID) (err error
 }
 
 func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken string) (identity Identity, err error) {
-	defer func() { s.logOperation("identity_link", "", err) }()
-	if accountID == uuid.Nil || strings.TrimSpace(idToken) == "" {
+	defer func() { s.logOperation(ctx, "identity_link", "", err) }()
+
+	if isEmptyAccount(accountID, idToken) {
 		return Identity{}, ErrAuthenticationFailed
 	}
 	if err := s.checkRate(ctx, "link:account:"+accountID.String(), s.rateLimits.LinkAccountPerMin); err != nil {
 		return Identity{}, err
 	}
+
 	verified, err := s.verifier.Verify(ctx, idToken)
 	if err != nil {
 		return Identity{}, mapVerifierError(err)
@@ -338,21 +262,16 @@ func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken
 		ProviderSub: verified.UID,
 		Email:       verifiedEmail(verified),
 	}
-	entry, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionIdentityLinked,
-		ActorType: ActorAccount,
-		ActorID:   accountID.String(),
-		AccountID: accountID,
-		Entity:    "identity",
-		Details:   authAuditDetails{Provider: firebaseProvider},
-	})
+	entry, err := buildLinkIdentityAuditEntry(accountID, firebaseProvider)
 	if err != nil {
 		return Identity{}, err
 	}
+
 	linked, err := s.store.LinkIdentityForAccount(ctx, accountID, params, entry)
 	if err == nil {
 		return identityFromRow(linked), nil
 	}
+
 	switch {
 	case errors.Is(err, ErrIdentityConflict):
 		existing, lookupErr := s.store.GetIdentityByProviderSubject(ctx, firebaseProvider, verified.UID)
@@ -380,21 +299,15 @@ func (s *service) LinkIdentity(ctx context.Context, accountID uuid.UUID, idToken
 }
 
 func (s *service) UnlinkIdentity(ctx context.Context, accountID, identityID uuid.UUID) (err error) {
-	defer func() { s.logOperation("identity_unlink", "", err) }()
-	if accountID == uuid.Nil || identityID == uuid.Nil {
+	defer func() { s.logOperation(ctx, "identity_unlink", "", err) }()
+
+	if isEmptyIdentity(accountID, identityID) {
 		return ErrAuthenticationFailed
 	}
 	if err := s.checkRate(ctx, "unlink:account:"+accountID.String(), s.rateLimits.LinkAccountPerMin); err != nil {
 		return err
 	}
-	entry, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    ActionIdentityUnlinked,
-		ActorType: ActorAccount,
-		ActorID:   accountID.String(),
-		AccountID: accountID,
-		Entity:    "identity",
-		Details:   authAuditDetails{Provider: firebaseProvider},
-	})
+	entry, err := buildUnlinkIdentityAuditEntry(accountID, firebaseProvider)
 	if err != nil {
 		return err
 	}
@@ -416,14 +329,7 @@ func (s *service) UnlinkIdentity(ctx context.Context, accountID, identityID uuid
 }
 
 func (s *service) auditIdentityDenied(ctx context.Context, action string, accountID uuid.UUID, reason AuthAuditReason) error {
-	entry, err := buildAuthAuditEntry(authAuditEntry{
-		Action:    action,
-		ActorType: ActorAccount,
-		ActorID:   accountID.String(),
-		AccountID: accountID,
-		Entity:    "identity",
-		Details:   authAuditDetails{Provider: firebaseProvider, Reason: reason},
-	})
+	entry, err := buildIdentityDeniedAuditEntry(action, accountID, firebaseProvider, reason)
 	if err != nil {
 		return err
 	}
@@ -588,7 +494,7 @@ func (s *service) checkRate(ctx context.Context, key string, limit int) error {
 	return &RateLimitedError{RetryAfter: retryAfter}
 }
 
-func (s *service) logOperation(operation, client string, err error) {
+func (s *service) logOperation(ctx context.Context, operation, client string, err error) {
 	outcome := "success"
 	if err != nil {
 		outcome = authErrorCategory(err)
@@ -598,10 +504,10 @@ func (s *service) logOperation(operation, client string, err error) {
 		attrs = append(attrs, "client", client)
 	}
 	if err != nil {
-		s.logger.Warn("auth outcome", attrs...)
+		s.logger.ErrorContext(ctx, "auth outcome", attrs...)
 		return
 	}
-	s.logger.Info("auth outcome", attrs...)
+	s.logger.InfoContext(ctx, "auth outcome", attrs...)
 }
 
 func authErrorCategory(err error) string {
