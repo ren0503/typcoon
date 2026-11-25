@@ -2,6 +2,7 @@ package partner
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,71 +11,30 @@ import (
 	"github.com/ren0503/tycoon/internal/application/auth"
 	appship "github.com/ren0503/tycoon/internal/application/ship"
 	apperrors "github.com/ren0503/tycoon/internal/platform/errors"
+	"github.com/ren0503/tycoon/internal/platform/helpers"
 	"github.com/ren0503/tycoon/internal/platform/pagination"
 )
 
-func isBusinessType(businessType string) bool {
-	switch businessType {
-	case "entertainment", "retail", "food_beverage", "spa", "excursion", "other":
-		return true
-	default:
-		return false
-	}
-}
-
-func isPartnerStatus(status string) bool {
-	switch status {
-	case "pending", "active", "suspended", "terminated":
-		return true
-	default:
-		return false
-	}
-}
-
-func isContractStatus(status string) bool {
-	switch status {
-	case "draft", "active", "expired", "terminated":
-		return true
-	default:
-		return false
-	}
-}
-
-func isPartnerStaffStatus(status string) bool {
-	switch status {
-	case "active", "inactive":
-		return true
-	default:
-		return false
-	}
-}
-
-func isSlotStatus(status string) bool {
-	switch status {
-	case "requested", "approved", "rejected", "cancelled":
-		return true
-	default:
-		return false
-	}
-}
-
 type service struct {
-	repo  Repository
-	ships appship.Service
+	repo   Repository
+	ships  appship.Service
+	logger *slog.Logger
 }
 
 // New builds the partner service.
-func New(repo Repository, ships appship.Service) Service {
-	return &service{repo: repo, ships: ships}
+func New(repo Repository, ships appship.Service, logger *slog.Logger) Service {
+	return &service{repo: repo, ships: ships, logger: logger}
 }
 
-func (s *service) CreatePartner(ctx context.Context, p auth.Principal, input PartnerInput) (Partner, error) {
-	if err := s.requireTenant(p); err != nil {
+func (s *service) CreatePartner(ctx context.Context, p auth.Principal, input PartnerInput) (partner Partner, err error) {
+	defer func() { s.logOperation(ctx, "CreatePArtner", err) }()
+
+	if err = s.requireTenant(p); err != nil {
 		return Partner{}, err
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" || !isBusinessType(input.BusinessType) {
-		return Partner{}, validation("Partner name and a recognised business type are required.")
+		return Partner{}, helpers.Validation("Partner name and a recognised business type are required.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -82,7 +42,7 @@ func (s *service) CreatePartner(ctx context.Context, p auth.Principal, input Par
 	}
 	return s.repo.CreatePartner(ctx, CreatePartnerParams{
 		ID: id, TenantID: p.TenantID, Name: name, BusinessType: input.BusinessType,
-		ContactName: trimPtr(input.ContactName), ContactEmail: trimPtr(input.ContactEmail), ContactPhone: trimPtr(input.ContactPhone),
+		ContactName: helpers.TrimPtr(input.ContactName), ContactEmail: helpers.TrimPtr(input.ContactEmail), ContactPhone: helpers.TrimPtr(input.ContactPhone),
 	})
 }
 
@@ -97,7 +57,7 @@ func (s *service) ListPartners(ctx context.Context, p auth.Principal, rawCursor 
 		return Page[Partner]{}, err
 	}
 	rows, err := s.repo.ListPartners(ctx, ListPartnersParams{
-		TenantID: nullUUID(p.TenantID), After: nullUUID(cursor.ID), PageLimit: limit + 1,
+		TenantID: helpers.NullUUID(p.TenantID), After: helpers.NullUUID(cursor.ID), PageLimit: limit + 1,
 	})
 	if err != nil {
 		return Page[Partner]{}, err
@@ -117,22 +77,22 @@ func (s *service) UpdatePartner(ctx context.Context, p auth.Principal, id uuid.U
 	}
 	if input.Name != nil {
 		if strings.TrimSpace(*input.Name) == "" {
-			return Partner{}, validation("Partner name must not be empty.")
+			return Partner{}, helpers.Validation("Partner name must not be empty.")
 		}
 		current.Name = strings.TrimSpace(*input.Name)
 	}
 	if input.ContactName != nil {
-		current.ContactName = trimPtr(input.ContactName)
+		current.ContactName = helpers.TrimPtr(input.ContactName)
 	}
 	if input.ContactEmail != nil {
-		current.ContactEmail = trimPtr(input.ContactEmail)
+		current.ContactEmail = helpers.TrimPtr(input.ContactEmail)
 	}
 	if input.ContactPhone != nil {
-		current.ContactPhone = trimPtr(input.ContactPhone)
+		current.ContactPhone = helpers.TrimPtr(input.ContactPhone)
 	}
 	if input.Status != nil {
 		if !isPartnerStatus(*input.Status) {
-			return Partner{}, validation("Partner status is not recognised.")
+			return Partner{}, helpers.Validation("Partner status is not recognised.")
 		}
 		current.Status = *input.Status
 	}
@@ -176,16 +136,16 @@ func (s *service) CreateContract(ctx context.Context, p auth.Principal, partnerI
 		return PartnerContract{}, err
 	}
 	if input.StartsOn == nil {
-		return PartnerContract{}, validation("Contract start date is required.")
+		return PartnerContract{}, helpers.Validation("Contract start date is required.")
 	}
 	if input.EndsOn != nil && input.EndsOn.Before(*input.StartsOn) {
-		return PartnerContract{}, validation("Contract end date must not be before start date.")
+		return PartnerContract{}, helpers.Validation("Contract end date must not be before start date.")
 	}
 	if input.Status == "" {
 		input.Status = "draft"
 	}
 	if !isContractStatus(input.Status) {
-		return PartnerContract{}, validation("Contract status is not recognised.")
+		return PartnerContract{}, helpers.Validation("Contract status is not recognised.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -193,8 +153,8 @@ func (s *service) CreateContract(ctx context.Context, p auth.Principal, partnerI
 	}
 	return s.repo.CreateContract(ctx, CreatePartnerContractParams{
 		ID: id, ShipID: input.ShipID, PartnerID: partnerID, StartsOn: input.StartsOn, EndsOn: input.EndsOn,
-		FeeModel: trimPtr(input.FeeModel), FeeAmountCents: input.FeeAmountCents, Currency: trimPtr(input.Currency),
-		TermsStorageKey: trimPtr(input.TermsStorageKey), Status: input.Status,
+		FeeModel: helpers.TrimPtr(input.FeeModel), FeeAmountCents: input.FeeAmountCents, Currency: helpers.TrimPtr(input.Currency),
+		TermsStorageKey: helpers.TrimPtr(input.TermsStorageKey), Status: input.Status,
 	})
 }
 
@@ -219,7 +179,7 @@ func (s *service) ListContracts(ctx context.Context, p auth.Principal, partnerID
 		return Page[PartnerContract]{}, err
 	}
 	rows, err := s.repo.ListContracts(ctx, ListPartnerContractsParams{
-		PartnerID: partnerID, After: nullUUID(cursor.ID), PageLimit: limit + 1,
+		PartnerID: partnerID, After: helpers.NullUUID(cursor.ID), PageLimit: limit + 1,
 	})
 	if err != nil {
 		return Page[PartnerContract]{}, err
@@ -250,25 +210,25 @@ func (s *service) UpdateContract(ctx context.Context, p auth.Principal, id uuid.
 		current.EndsOn = input.EndsOn
 	}
 	if input.FeeModel != nil {
-		current.FeeModel = trimPtr(input.FeeModel)
+		current.FeeModel = helpers.TrimPtr(input.FeeModel)
 	}
 	if input.FeeAmountCents != nil {
 		current.FeeAmountCents = input.FeeAmountCents
 	}
 	if input.Currency != nil {
-		current.Currency = trimPtr(input.Currency)
+		current.Currency = helpers.TrimPtr(input.Currency)
 	}
 	if input.TermsStorageKey != nil {
-		current.TermsStorageKey = trimPtr(input.TermsStorageKey)
+		current.TermsStorageKey = helpers.TrimPtr(input.TermsStorageKey)
 	}
 	if input.Status != nil {
 		if !isContractStatus(*input.Status) {
-			return PartnerContract{}, validation("Contract status is not recognised.")
+			return PartnerContract{}, helpers.Validation("Contract status is not recognised.")
 		}
 		current.Status = *input.Status
 	}
 	if current.StartsOn == nil || (current.EndsOn != nil && current.EndsOn.Before(*current.StartsOn)) {
-		return PartnerContract{}, validation("Contract dates are invalid.")
+		return PartnerContract{}, helpers.Validation("Contract dates are invalid.")
 	}
 	return s.repo.UpdateContract(ctx, UpdatePartnerContractParams{
 		ID: id, ShipID: current.ShipID, StartsOn: current.StartsOn, EndsOn: current.EndsOn,
@@ -293,15 +253,15 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, partnerID u
 	}
 	name := strings.TrimSpace(input.FullName)
 	if name == "" {
-		return PartnerStaff{}, validation("Partner staff name is required.")
+		return PartnerStaff{}, helpers.Validation("Partner staff name is required.")
 	}
 	if input.Status == "" {
 		input.Status = "active"
 	}
 	if !isPartnerStaffStatus(input.Status) {
-		return PartnerStaff{}, validation("Partner staff status is not recognised.")
+		return PartnerStaff{}, helpers.Validation("Partner staff status is not recognised.")
 	}
-	if err := dateRange(input.ValidFrom, input.ValidTo); err != nil {
+	if err := helpers.ValidateDateRange(input.ValidFrom, input.ValidTo); err != nil {
 		return PartnerStaff{}, err
 	}
 	id, err := uuid.NewV7()
@@ -309,8 +269,8 @@ func (s *service) CreateStaff(ctx context.Context, p auth.Principal, partnerID u
 		return PartnerStaff{}, apperrors.Internal(err)
 	}
 	return s.repo.CreateStaff(ctx, CreatePartnerStaffParams{
-		ID: id, ShipID: input.ShipID, PartnerID: partnerID, FullName: name, RoleTitle: trimPtr(input.RoleTitle),
-		Phone: trimPtr(input.Phone), Status: input.Status, ValidFrom: input.ValidFrom, ValidTo: input.ValidTo,
+		ID: id, ShipID: input.ShipID, PartnerID: partnerID, FullName: name, RoleTitle: helpers.TrimPtr(input.RoleTitle),
+		Phone: helpers.TrimPtr(input.Phone), Status: input.Status, ValidFrom: input.ValidFrom, ValidTo: input.ValidTo,
 	})
 }
 
@@ -334,7 +294,7 @@ func (s *service) ListStaff(ctx context.Context, p auth.Principal, partnerID uui
 	if err != nil {
 		return Page[PartnerStaff]{}, err
 	}
-	rows, err := s.repo.ListStaff(ctx, ListPartnerStaffParams{PartnerID: partnerID, After: nullUUID(cursor.ID), PageLimit: limit + 1})
+	rows, err := s.repo.ListStaff(ctx, ListPartnerStaffParams{PartnerID: partnerID, After: helpers.NullUUID(cursor.ID), PageLimit: limit + 1})
 	if err != nil {
 		return Page[PartnerStaff]{}, err
 	}
@@ -359,19 +319,19 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 	}
 	if input.FullName != nil {
 		if strings.TrimSpace(*input.FullName) == "" {
-			return PartnerStaff{}, validation("Partner staff name must not be empty.")
+			return PartnerStaff{}, helpers.Validation("Partner staff name must not be empty.")
 		}
 		current.FullName = strings.TrimSpace(*input.FullName)
 	}
 	if input.RoleTitle != nil {
-		current.RoleTitle = trimPtr(input.RoleTitle)
+		current.RoleTitle = helpers.TrimPtr(input.RoleTitle)
 	}
 	if input.Phone != nil {
-		current.Phone = trimPtr(input.Phone)
+		current.Phone = helpers.TrimPtr(input.Phone)
 	}
 	if input.Status != nil {
 		if !isPartnerStaffStatus(*input.Status) {
-			return PartnerStaff{}, validation("Partner staff status is not recognised.")
+			return PartnerStaff{}, helpers.Validation("Partner staff status is not recognised.")
 		}
 		current.Status = *input.Status
 	}
@@ -381,7 +341,7 @@ func (s *service) UpdateStaff(ctx context.Context, p auth.Principal, id uuid.UUI
 	if input.ValidTo != nil {
 		current.ValidTo = input.ValidTo
 	}
-	if err := dateRange(current.ValidFrom, current.ValidTo); err != nil {
+	if err := helpers.ValidateDateRange(current.ValidFrom, current.ValidTo); err != nil {
 		return PartnerStaff{}, err
 	}
 	return s.repo.UpdateStaff(ctx, UpdatePartnerStaffParams{
@@ -406,15 +366,15 @@ func (s *service) CreateService(ctx context.Context, p auth.Principal, partnerID
 	}
 	name := strings.TrimSpace(input.Name)
 	if name == "" || strings.TrimSpace(input.Category) == "" {
-		return PartnerService{}, validation("Service name and category are required.")
+		return PartnerService{}, helpers.Validation("Service name and category are required.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return PartnerService{}, apperrors.Internal(err)
 	}
 	return s.repo.CreateService(ctx, CreatePartnerServiceParams{
-		ID: id, ShipID: input.ShipID, PartnerID: partnerID, AreaID: optionalUUID(input.AreaID), Name: name,
-		Category: strings.TrimSpace(input.Category), PriceCents: input.PriceCents, Currency: trimPtr(input.Currency),
+		ID: id, ShipID: input.ShipID, PartnerID: partnerID, AreaID: helpers.OptionalUUID(input.AreaID), Name: name,
+		Category: strings.TrimSpace(input.Category), PriceCents: input.PriceCents, Currency: helpers.TrimPtr(input.Currency),
 		RequiresSlot: input.RequiresSlot, DefaultCapacity: input.DefaultCapacity, IsActive: input.IsActive,
 	})
 }
@@ -439,7 +399,7 @@ func (s *service) ListServices(ctx context.Context, p auth.Principal, partnerID 
 	if err != nil {
 		return Page[PartnerService]{}, err
 	}
-	rows, err := s.repo.ListServices(ctx, ListPartnerServicesParams{PartnerID: partnerID, After: nullUUID(cursor.ID), PageLimit: limit + 1})
+	rows, err := s.repo.ListServices(ctx, ListPartnerServicesParams{PartnerID: partnerID, After: helpers.NullUUID(cursor.ID), PageLimit: limit + 1})
 	if err != nil {
 		return Page[PartnerService]{}, err
 	}
@@ -463,11 +423,11 @@ func (s *service) UpdateService(ctx context.Context, p auth.Principal, id uuid.U
 		current.ShipID = *input.ShipID
 	}
 	if input.AreaID != nil {
-		current.AreaID = optionalUUID(input.AreaID)
+		current.AreaID = helpers.OptionalUUID(input.AreaID)
 	}
 	if input.Name != nil {
 		if strings.TrimSpace(*input.Name) == "" {
-			return PartnerService{}, validation("Service name must not be empty.")
+			return PartnerService{}, helpers.Validation("Service name must not be empty.")
 		}
 		current.Name = strings.TrimSpace(*input.Name)
 	}
@@ -478,7 +438,7 @@ func (s *service) UpdateService(ctx context.Context, p auth.Principal, id uuid.U
 		current.PriceCents = input.PriceCents
 	}
 	if input.Currency != nil {
-		current.Currency = trimPtr(input.Currency)
+		current.Currency = helpers.TrimPtr(input.Currency)
 	}
 	if input.RequiresSlot != nil {
 		current.RequiresSlot = *input.RequiresSlot
@@ -511,7 +471,7 @@ func (s *service) CreateSlot(ctx context.Context, p auth.Principal, partnerID uu
 		return PartnerSlot{}, err
 	}
 	if !input.EndAt.After(input.StartAt) {
-		return PartnerSlot{}, validation("Slot end must be after start.")
+		return PartnerSlot{}, helpers.Validation("Slot end must be after start.")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -519,7 +479,7 @@ func (s *service) CreateSlot(ctx context.Context, p auth.Principal, partnerID uu
 	}
 	return s.repo.CreateSlot(ctx, CreatePartnerSlotParams{
 		ID: id, ShipID: input.ShipID, PartnerID: partnerID, AreaID: input.AreaID,
-		VoyageID: optionalUUID(input.VoyageID), ServiceID: optionalUUID(input.ServiceID),
+		VoyageID: helpers.OptionalUUID(input.VoyageID), ServiceID: helpers.OptionalUUID(input.ServiceID),
 		StartAt: input.StartAt, EndAt: input.EndAt, Capacity: input.Capacity,
 	})
 }
@@ -544,7 +504,7 @@ func (s *service) ListSlots(ctx context.Context, p auth.Principal, partnerID uui
 	if err != nil {
 		return Page[PartnerSlot]{}, err
 	}
-	rows, err := s.repo.ListSlots(ctx, ListPartnerSlotsParams{PartnerID: partnerID, After: nullUUID(cursor.ID), PageLimit: limit + 1})
+	rows, err := s.repo.ListSlots(ctx, ListPartnerSlotsParams{PartnerID: partnerID, After: helpers.NullUUID(cursor.ID), PageLimit: limit + 1})
 	if err != nil {
 		return Page[PartnerSlot]{}, err
 	}
@@ -562,10 +522,10 @@ func (s *service) UpdateSlot(ctx context.Context, p auth.Principal, id uuid.UUID
 		return PartnerSlot{}, err
 	}
 	if input.VoyageID != nil {
-		current.VoyageID = optionalUUID(input.VoyageID)
+		current.VoyageID = helpers.OptionalUUID(input.VoyageID)
 	}
 	if input.ServiceID != nil {
-		current.ServiceID = optionalUUID(input.ServiceID)
+		current.ServiceID = helpers.OptionalUUID(input.ServiceID)
 	}
 	if input.StartAt != nil {
 		current.StartAt = *input.StartAt
@@ -577,11 +537,11 @@ func (s *service) UpdateSlot(ctx context.Context, p auth.Principal, id uuid.UUID
 		current.Capacity = input.Capacity
 	}
 	if input.DecisionNote != nil {
-		current.DecisionNote = trimPtr(input.DecisionNote)
+		current.DecisionNote = helpers.TrimPtr(input.DecisionNote)
 	}
 	if input.Status != nil {
 		if !isSlotStatus(*input.Status) {
-			return PartnerSlot{}, validation("Slot status is not recognised.")
+			return PartnerSlot{}, helpers.Validation("Slot status is not recognised.")
 		}
 		if *input.Status == "approved" || *input.Status == "rejected" {
 			now := time.Now().UTC()
@@ -593,7 +553,7 @@ func (s *service) UpdateSlot(ctx context.Context, p auth.Principal, id uuid.UUID
 		current.Status = *input.Status
 	}
 	if !current.EndAt.After(current.StartAt) {
-		return PartnerSlot{}, validation("Slot end must be after start.")
+		return PartnerSlot{}, helpers.Validation("Slot end must be after start.")
 	}
 	return s.repo.UpdateSlot(ctx, UpdatePartnerSlotParams{
 		ID: id, VoyageID: current.VoyageID, ServiceID: current.ServiceID, StartAt: current.StartAt,
@@ -623,7 +583,7 @@ func (s *service) getPartnerScoped(ctx context.Context, p auth.Principal, id uui
 
 func (s *service) requireTenant(p auth.Principal) error {
 	if p.TenantID == uuid.Nil {
-		return validation("A tenant is required.")
+		return helpers.Validation("A tenant is required.")
 	}
 	return nil
 }
@@ -639,38 +599,12 @@ func (s *service) requireShip(ctx context.Context, p auth.Principal, shipID uuid
 	return nil
 }
 
-func dateRange(from, to *time.Time) error {
-	if from != nil && to != nil && to.Before(*from) {
-		return validation("Valid-to date must not be before valid-from.")
+func (s *service) logOperation(ctx context.Context, operation string, err error) {
+	service := "partner"
+	attrs := []any{"service", service, "operation", operation}
+	if err != nil {
+		s.logger.ErrorContext(ctx, "operation failed", append(attrs, "error", err.Error())...)
+	} else {
+		s.logger.InfoContext(ctx, "operation succeeded", attrs...)
 	}
-	return nil
-}
-
-func optionalUUID(id *uuid.UUID) uuid.NullUUID {
-	if id == nil || *id == uuid.Nil {
-		return uuid.NullUUID{}
-	}
-	return uuid.NullUUID{UUID: *id, Valid: true}
-}
-
-func trimPtr(value *string) *string {
-	if value == nil {
-		return nil
-	}
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return nil
-	}
-	return &trimmed
-}
-
-func validation(message string) error {
-	return apperrors.Validation(apperrors.CodeValidationFailed, message)
-}
-
-func nullUUID(id uuid.UUID) uuid.NullUUID {
-	if id == uuid.Nil {
-		return uuid.NullUUID{}
-	}
-	return uuid.NullUUID{UUID: id, Valid: true}
 }

@@ -65,7 +65,7 @@ func BuildModules(deps ModuleDeps) Modules {
 	shipSvc := appship.New(deps.ShipRepo, deps.Logger)
 	voyageSvc := appvoyage.New(deps.VoyageRepo, deps.Logger, shipSvc)
 	staffSvc := appstaff.New(deps.StaffRepo, deps.Logger, shipSvc)
-	partnerSvc := apppartner.New(deps.PartnerRepo, shipSvc)
+	partnerSvc := apppartner.New(deps.PartnerRepo, shipSvc, deps.Logger)
 	bookingSvc := appbooking.New(deps.BookingRepo, shipSvc, voyageSvc, partnerSvc, deps.Accounts, deps.Logger)
 	return Modules{
 		AuthSvc:     deps.Auth,

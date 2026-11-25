@@ -41,7 +41,7 @@ func New(repo Repository, ships appship.Service, voyages appvoyage.Service, part
 func (s *service) CreateBooking(ctx context.Context, p auth.Principal, input BookingInput) (booking Booking, err error) {
 	defer func() { s.logOperation(ctx, "CreateBooking", err) }()
 
-	if err := s.validateBeforeCreate(ctx, p, input); err != nil {
+	if err = s.validateBeforeCreate(ctx, p, input); err != nil {
 		return Booking{}, err
 	}
 
